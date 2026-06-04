@@ -22,7 +22,8 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import get_password_hash
-from app.models.cleaning import (
+from app.modules.catalog.models import Product, Supplier, SupplierCountry, SupplierStatus
+from app.modules.cleaning.models import (
     CleaningLog,
     CleaningRoutine,
     CleaningStatus,
@@ -30,24 +31,21 @@ from app.models.cleaning import (
     CleaningZone,
     ScheduleType,
 )
-from app.models.core import (
-    AffectationSite,
-    Equipement,
-    Etablissement,
-    NonConformity,
-    NonConformityStatus,
+from app.modules.equipments.models import Equipement, TypeEquipement
+from app.modules.haccp.models import (
     Pointage,
     ReleveTemperature,
-    Role,
     SourceReleve,
     TypeEvenementPointage,
-    Utilisateur,
+)
+from app.modules.nonconformities.models import (
+    NonConformity,
+    NonConformityStatus,
     WorkflowType,
 )
-from app.models.product import Product
-from app.models.reception import ReceptionItem, ReceptionSession, ReceptionStatus
-from app.models.supplier import Supplier, SupplierCountry, SupplierStatus
-from app.models.tenant import Organisation, TypeSecteur
+from app.modules.personnel.models import AffectationSite, Role, Utilisateur
+from app.modules.receptions.models import ReceptionItem, ReceptionSession, ReceptionStatus
+from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 
 TZ = ZoneInfo("Europe/Paris")
 
@@ -247,7 +245,6 @@ async def main() -> None:
         ]
         equip_objects = {}
         for eid, enom, etype, tmin, tmax in EQUIP:
-            from app.models.core import TypeEquipement
             eq = await upsert(
                 s, Equipement, eid,
                 etablissement_id=site.id,
@@ -374,10 +371,10 @@ async def main() -> None:
                 establishment_id=site.id,
                 supplier_id=supp_id,
                 name=pname,
-                reference=ref,
+                internal_reference=ref,
                 has_temperature_control=has_temp,
-                min_target_temperature=tmin,
-                max_target_temperature=tmax,
+                min_temperature=tmin,
+                max_temperature=tmax,
             )
             product_objects[pid] = prod
 
