@@ -1,0 +1,210 @@
+{
+  "uid": "haccp-business-metrics",
+  "title": "HACCP Métier",
+  "tags": ["haccp", "business"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Taux de conformité température (%)",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "100 * sum(increase(haccp_temperature_records_total{is_conforme=\"true\"}[24h])) / sum(increase(haccp_temperature_records_total[24h]))",
+          "legendFormat": "Conformité %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": true }
+    },
+    {
+      "id": 2,
+      "title": "Relevés de température (24h)",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_temperature_records_total[24h]))",
+          "legendFormat": "Total"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 3,
+      "title": "NC Ouvertes",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_nonconformities_opened_total[24h])) - sum(increase(haccp_nonconformities_resolved_total[24h]))",
+          "legendFormat": "NC ouvertes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 }]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 4,
+      "title": "Opérateurs en service",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_timeclock_events_total{type_evenement=\"CLOCK_IN\"}[12h])) - sum(increase(haccp_timeclock_events_total{type_evenement=\"CLOCK_OUT\"}[12h]))",
+          "legendFormat": "En service"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 5,
+      "title": "Relevés de température (conformes vs non-conformes)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(haccp_temperature_records_total{is_conforme=\"true\"}[10m])) * 600",
+          "legendFormat": "Conformes"
+        },
+        {
+          "expr": "sum(rate(haccp_temperature_records_total{is_conforme=\"false\"}[10m])) * 600",
+          "legendFormat": "Non-conformes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Non-conformes" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "title": "Non-conformités ouvertes vs résolues (24h)",
+      "type": "barchart",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_nonconformities_opened_total[24h])) by (workflow_type)",
+          "legendFormat": "Ouvertes — {{workflow_type}}"
+        },
+        {
+          "expr": "sum(increase(haccp_nonconformities_resolved_total[24h])) by (workflow_type)",
+          "legendFormat": "Résolues — {{workflow_type}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+    {
+      "id": 7,
+      "title": "Délai de résolution NC — Percentiles",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(haccp_nonconformity_resolution_seconds_bucket[1h])) by (le)) / 60",
+          "legendFormat": "p50 (min)"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(haccp_nonconformity_resolution_seconds_bucket[1h])) by (le)) / 60",
+          "legendFormat": "p90 (min)"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(haccp_nonconformity_resolution_seconds_bucket[1h])) by (le)) / 3600",
+          "legendFormat": "p99 (h)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+    {
+      "id": 8,
+      "title": "Réceptions — Articles conformes vs non-conformes",
+      "type": "piechart",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_reception_items_total{is_compliant=\"true\"}[24h]))",
+          "legendFormat": "Conformes"
+        },
+        {
+          "expr": "sum(increase(haccp_reception_items_total{is_compliant=\"false\"}[24h]))",
+          "legendFormat": "Non-conformes"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Tâches de nettoyage (DONE vs ISSUE)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(haccp_cleaning_logs_total{status=\"DONE\"}[1h]))",
+          "legendFormat": "DONE"
+        },
+        {
+          "expr": "sum(increase(haccp_cleaning_logs_total{status=\"ISSUE\"}[1h]))",
+          "legendFormat": "ISSUE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "ISSUE" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "title": "Logs métier HACCP (Live)",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{compose_service=\"api\"} |= \"temperature_record_created\" or {compose_service=\"api\"} |= \"nonconformity_opened\" or {compose_service=\"api\"} |= \"reception_session\"",
+          "legendFormat": ""
+        }
+      ],
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+    }
+  ]
+}

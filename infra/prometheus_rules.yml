@@ -1,0 +1,118 @@
+groups:
+  # ── API & infrastructure ──────────────────────────────────────────────────
+  - name: haccp_api
+    interval: 30s
+    rules:
+      - alert: APIDown
+        expr: up{job="haccp-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "API HACCP inaccessible"
+          description: >-
+            Le service haccp-api ne répond plus au scrape Prometheus depuis 2 minutes.
+            Vérifier les pods / conteneurs Docker.
+
+      - alert: APIHighErrorRate
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Taux d'erreur 5xx > 5%"
+          description: "Taux d'erreur HTTP 5xx = {{ humanizePercentage $value }}."
+
+      - alert: APIHighErrorRateWarning
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Taux d'erreur 5xx > 2%"
+          description: "Taux d'erreur HTTP 5xx = {{ humanizePercentage $value }}."
+
+      - alert: APIHighLatencyP99
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Latence p99 > 2s"
+          description: "p99 = {{ $value | humanizeDuration }}."
+
+  # ── HACCP — domaine métier ────────────────────────────────────────────────
+  - name: haccp_business
+    interval: 60s
+    rules:
+      - alert: TemperatureComplianceCritical
+        # More than 10% of temperature readings non-compliant over the last hour.
+        expr: >
+          sum(rate(haccp_temperature_records_total{is_conforme="false"}[1h]))
+          /
+          sum(rate(haccp_temperature_records_total[1h])) > 0.10
+        for: 15m
+        labels:
+          severity: critical
+          team: haccp
+        annotations:
+          summary: "Taux de non-conformité température > 10%"
+          description: >-
+            Plus de 10% des relevés de température sont hors-norme sur la dernière heure.
+            Vérifier les équipements concernés immédiatement.
+
+      - alert: TemperatureComplianceWarning
+        expr: >
+          sum(rate(haccp_temperature_records_total{is_conforme="false"}[1h]))
+          /
+          sum(rate(haccp_temperature_records_total[1h])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          team: haccp
+        annotations:
+          summary: "Taux de non-conformité température > 5%"
+          description: "Taux actuel : {{ humanizePercentage $value }}."
+
+      - alert: NonConformityBacklogHigh
+        # Opened minus resolved (proxy for backlog) > 10 over the last 6h.
+        expr: >
+          sum(increase(haccp_nonconformities_opened_total[6h]))
+          -
+          sum(increase(haccp_nonconformities_resolved_total[6h])) > 10
+        for: 30m
+        labels:
+          severity: warning
+          team: haccp
+        annotations:
+          summary: "Backlog NC > 10 non résolues sur 6h"
+          description: >-
+            Il y a {{ $value }} non-conformités ouvertes sans action corrective
+            sur les 6 dernières heures. Demander aux opérateurs de traiter les NC.
+
+      - alert: NoTemperatureRecordsSince2h
+        # No temperature records at all for 2 hours — could indicate device/tablet issue.
+        expr: >
+          sum(increase(haccp_temperature_records_total[2h])) == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: haccp
+        annotations:
+          summary: "Aucun relevé de température depuis 2h"
+          description: >-
+            Aucun relevé de température enregistré depuis 2 heures.
+            Les tablettes sont-elles actives ? Les opérateurs effectuent-ils les contrôles ?

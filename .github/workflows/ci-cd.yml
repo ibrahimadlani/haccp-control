@@ -1,0 +1,122 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  validate-and-test:
+    name: Validate and Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: haccp_user
+          POSTGRES_PASSWORD: haccp_password
+          POSTGRES_DB: haccp_control_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U haccp_user -d haccp_control_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://haccp_user:haccp_password@localhost:5432/haccp_control_test
+      TEST_DATABASE_URL: postgresql+asyncpg://haccp_user:haccp_password@localhost:5432/haccp_control_test
+      JWT_SECRET_KEY: ci-local-secret-change-me-32-chars
+      JWT_ALGORITHM: HS256
+      ESTABLISHMENT_ACCESS_TOKEN_EXPIRE_HOURS: "12"
+      AWS_ACCESS_KEY_ID: test-access-key
+      AWS_SECRET_ACCESS_KEY: test-secret-key
+      AWS_REGION: eu-west-3
+      AWS_ENDPOINT_URL: http://localhost:9000
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      S3_BUCKET_NAME: haccp-test-documents
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000"]'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff – format check
+        run: uv run ruff format --check app alembic tests
+
+      - name: Ruff – lint check
+        run: uv run ruff check --output-format=github app alembic tests
+
+      - name: Run mypy
+        run: uv run mypy app
+
+      - name: Run pytest
+        run: uv run pytest
+
+  build-and-deploy:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+    needs: validate-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build production Docker image
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}" \
+            --tag "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest" \
+            backend
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+          docker push "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
+
+      - name: Deployment handoff
+        run: |
+          echo "Image pushed to ECR."
+          echo "Deploy using ECS/Fargate or your container runtime with the :${{ env.IMAGE_TAG }} image."

@@ -1,0 +1,5 @@
+export const DEVICE_TOKEN_KEY = "haccp_device_token"
+export const DEVICE_CONTEXT_KEY = "haccp_device_context"
+export const DEVICE_ESTABLISHMENT_ID_KEY = "haccp_device_establishment_id"
+export const ORG_TOKEN_KEY = "haccp_org_token"
+export const ORG_CONTEXT_KEY = "haccp_org_context"

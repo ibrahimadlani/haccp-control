@@ -1,0 +1,116 @@
+# AlertManager configuration for the HACCP Control platform.
+#
+# SETUP REQUIRED:
+#   1. Set SLACK_WEBHOOK_URL env var or replace the placeholder below.
+#   2. Set ALERT_EMAIL_TO / ALERT_EMAIL_FROM or configure SMTP credentials.
+#   3. For production, store secrets via Docker Secrets or Vault.
+#
+# Routing strategy:
+#   critical → Slack (immediate, 5 min repeat)
+#   warning  → Slack (grouped, 30 min repeat)
+#   All alerts also available on /alerts in the AlertManager UI (port 9093).
+
+global:
+  # How long to wait before sending a notification about a resolved alert.
+  resolve_timeout: 5m
+
+  smtp_from: "${ALERT_EMAIL_FROM:-alerts@haccp-control.fr}"
+  smtp_smarthost: "${SMTP_HOST:-smtp.example.com:587}"
+  smtp_auth_username: "${SMTP_USER:-}"
+  smtp_auth_password: "${SMTP_PASSWORD:-}"
+  smtp_require_tls: true
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  # Default receiver for unmatched alerts.
+  receiver: slack-warnings
+  # Group alerts that share these labels to avoid notification storms.
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # Critical alerts → immediate Slack notification (short repeat).
+    - matchers:
+        - severity = critical
+      receiver: slack-critical
+      group_wait: 10s
+      repeat_interval: 30m
+      continue: false
+
+    # HACCP-specific warnings → Slack + email digest.
+    - matchers:
+        - team = haccp
+        - severity = warning
+      receiver: slack-haccp-warnings
+      repeat_interval: 2h
+      continue: false
+
+    # Ops warnings → Slack ops channel.
+    - matchers:
+        - team = ops
+        - severity = warning
+      receiver: slack-warnings
+      repeat_interval: 1h
+
+inhibit_rules:
+  # When the API is down, suppress all business alerts to avoid false positives
+  # (temperature compliance alerts etc. are meaningless if the API can't be scraped).
+  - source_matchers:
+      - alertname = APIDown
+    target_matchers:
+      - team = haccp
+    equal: []
+
+receivers:
+  - name: slack-critical
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE_ME}"
+        channel: "#alerts-prod"
+        color: "danger"
+        title: ":red_circle: CRITICAL — {{ .GroupLabels.alertname }}"
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ end }}
+        send_resolved: true
+
+  - name: slack-warnings
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE_ME}"
+        channel: "#alerts-staging"
+        color: "warning"
+        title: ":warning: WARNING — {{ .GroupLabels.alertname }}"
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+
+  - name: slack-haccp-warnings
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE_ME}"
+        channel: "#haccp-ops"
+        color: "warning"
+        title: ":thermometer: HACCP — {{ .GroupLabels.alertname }}"
+        text: >-
+          {{ range .Alerts }}
+          *Alerte:* {{ .Annotations.summary }}
+          *Détail:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+    email_configs:
+      - to: "${ALERT_EMAIL_TO:-ops@haccp-control.fr}"
+        html: >-
+          <h2>HACCP Alert: {{ .GroupLabels.alertname }}</h2>
+          {{ range .Alerts }}
+          <p><strong>{{ .Annotations.summary }}</strong></p>
+          <p>{{ .Annotations.description }}</p>
+          {{ end }}
+        send_resolved: true

@@ -1,0 +1,57 @@
+# Grafana Promtail — collects Docker container logs and ships them to Loki.
+#
+# Scrapes all Docker container stdout/stderr logs via the Docker socket.
+# Structured JSON logs produced by structlog are sent as-is; Loki/Grafana
+# can parse the JSON fields for label extraction and filtering.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  # Tracks the read position for each log file so Promtail resumes after restart.
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          # Only collect logs from containers on the haccp_network.
+          - name: network
+            values: ["haccp-control_haccp_network"]
+    relabel_configs:
+      # Extract the compose service name as a label for easy filtering.
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: compose_service
+      # Use the container name as the job label.
+      - source_labels: [__meta_docker_container_name]
+        regex: /(.*)
+        target_label: container
+      # Keep only containers that have a compose project label (i.e. our stack).
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        regex: .+
+        action: keep
+    pipeline_stages:
+      # Attempt to parse the log line as JSON (structlog output in prod/staging).
+      # If parsing fails (e.g. uvicorn plaintext logs), the raw line is kept.
+      - json:
+          expressions:
+            level: level
+            logger: logger
+            event: event
+            request_id: request_id
+      # Promote the parsed 'level' field to a Loki label for alert routing.
+      - labels:
+          level:
+          logger:
+      # Extract the timestamp from the structured log if present.
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+          fallback_formats:
+            - "2006-01-02T15:04:05.999999Z07:00"
