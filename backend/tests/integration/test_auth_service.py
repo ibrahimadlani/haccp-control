@@ -10,10 +10,7 @@ from tests.integration.conftest import (
     make_base_seed,
     make_establishment,
     make_organisation,
-    make_role,
-    make_user,
 )
-
 
 # ── Manager login ─────────────────────────────────────────────────────────────
 
@@ -28,7 +25,7 @@ async def test_login_manager_valid_credentials_returns_token(test_db: AsyncSessi
         etablissement_id=seed.est.id,
     )
     result = await login_manager(payload, test_db)
-    assert result.token is not None
+    assert result.access_token is not None
     assert result.establishment.etablissement_id == seed.est.id
 
 
@@ -56,7 +53,9 @@ async def test_login_manager_unknown_email_raises_401(test_db: AsyncSession):
     assert exc_info.value.status_code == 401
 
 
-async def test_login_manager_operator_not_assigned_to_establishment_raises_401_or_403(test_db: AsyncSession):
+async def test_login_manager_operator_not_assigned_to_establishment_raises_401_or_403(
+    test_db: AsyncSession,
+):
     seed = await make_base_seed(test_db)
     # Create a second establishment; the manager is not assigned there
     other_est = await make_establishment(test_db, seed.org, nom_site="Autre site")
@@ -91,7 +90,7 @@ async def test_login_manager_org_admin_sets_is_org_admin_claim(test_db: AsyncSes
 
 
 async def test_login_organization_valid_credentials_returns_token(test_db: AsyncSession):
-    org = await make_organisation(
+    await make_organisation(
         test_db,
         admin_email="org_admin@test.com",
         admin_password="OrgPassword123",
@@ -101,11 +100,11 @@ async def test_login_organization_valid_credentials_returns_token(test_db: Async
         password="OrgPassword123",
     )
     result = await login_organization(payload, test_db)
-    assert result.token is not None
+    assert result.access_token is not None
 
 
 async def test_login_organization_wrong_password_raises_401(test_db: AsyncSession):
-    org = await make_organisation(
+    await make_organisation(
         test_db,
         admin_email="org_admin2@test.com",
         admin_password="OrgPassword123",

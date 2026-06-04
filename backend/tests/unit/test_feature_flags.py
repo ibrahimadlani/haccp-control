@@ -1,7 +1,5 @@
 """Unit tests for feature flag schemas and logic."""
 
-import pytest
-
 from app.core.features import Feature
 from app.modules.tenant.schemas import (
     EstablishmentSettings,
@@ -9,7 +7,6 @@ from app.modules.tenant.schemas import (
     PlanLimits,
     TimeclockSettings,
 )
-
 
 # ── FeatureToggle ──────────────────────────────────────────────────────────────
 

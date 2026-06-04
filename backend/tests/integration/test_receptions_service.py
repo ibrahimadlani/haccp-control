@@ -1,8 +1,7 @@
 """Integration tests for app/modules/receptions/service.py."""
 
 import uuid
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -37,7 +36,7 @@ async def test_open_session_creates_session(test_db: AsyncSession):
 
     payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     result = await open_session(payload, test_db, seed.ctx, seed.operator, None, _mock_s3())
 
@@ -56,7 +55,7 @@ async def test_add_item_compliant_no_nc(test_db: AsyncSession):
 
     session_payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(
         session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
@@ -71,9 +70,15 @@ async def test_add_item_compliant_no_nc(test_db: AsyncSession):
     item = await add_item(session.id, item_payload, test_db, seed.ctx, seed.operator)
     assert item.is_compliant is True
 
-    ncs = (await test_db.execute(
-        select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
-    )).scalars().all()
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 0
 
 
@@ -84,7 +89,7 @@ async def test_add_item_non_compliant_creates_nc(test_db: AsyncSession):
 
     session_payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(
         session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
@@ -99,12 +104,18 @@ async def test_add_item_non_compliant_creates_nc(test_db: AsyncSession):
     item = await add_item(session.id, item_payload, test_db, seed.ctx, seed.operator)
     assert item.is_compliant is False
 
-    ncs = (await test_db.execute(
-        select(NonConformity).where(
-            NonConformity.establishment_id == seed.est.id,
-            NonConformity.workflow_type == WorkflowType.RECEPTION,
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(
+                    NonConformity.establishment_id == seed.est.id,
+                    NonConformity.workflow_type == WorkflowType.RECEPTION,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 1
     assert ncs[0].status == NonConformityStatus.OPEN
 
@@ -116,7 +127,7 @@ async def test_add_item_to_closed_session_raises_409(test_db: AsyncSession):
 
     session_payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(
         session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
@@ -143,7 +154,7 @@ async def test_close_session(test_db: AsyncSession):
 
     session_payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(
         session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()

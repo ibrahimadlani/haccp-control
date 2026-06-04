@@ -1,6 +1,5 @@
 """Integration tests for app/modules/nonconformities/service.py."""
 
-from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -8,10 +7,9 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.haccp.models import SourceReleve, TypeEvenementPointage
 from app.modules.haccp.schemas import TemperatureRecordCreate
 from app.modules.haccp.service import create_temperature_record
-from app.modules.nonconformities.models import NonConformity, NonConformityStatus, WorkflowType
+from app.modules.nonconformities.models import NonConformity, NonConformityStatus
 from app.modules.nonconformities.schemas import CloseNonConformityRequest
 from app.modules.nonconformities.service import (
     acknowledge_nonconformity,
@@ -23,11 +21,7 @@ from app.modules.nonconformities.service import (
 from tests.integration.conftest import (
     make_base_seed,
     make_equipment,
-    make_establishment,
     make_establishment_ctx,
-    make_organisation,
-    make_role,
-    make_user,
 )
 
 
@@ -39,9 +33,12 @@ async def _open_nc(test_db, seed, equip) -> NonConformity:
     )
     result = await create_temperature_record(payload, test_db, seed.ctx, seed.operator)
     from sqlalchemy import select
-    nc = (await test_db.execute(
-        select(NonConformity).where(NonConformity.id == result.nonconformity_id)
-    )).scalar_one()
+
+    nc = (
+        await test_db.execute(
+            select(NonConformity).where(NonConformity.id == result.nonconformity_id)
+        )
+    ).scalar_one()
     return nc
 
 
@@ -111,9 +108,7 @@ async def test_corrective_action_on_open_nc_raises_409(test_db: AsyncSession):
     mock_s3.object_url = MagicMock(return_value="http://s3.local/x")
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_corrective_action(
-            nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Action"
-        )
+        await create_corrective_action(nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Action")
     assert exc_info.value.status_code == 409
 
 
@@ -123,9 +118,7 @@ async def test_close_nc_not_resolved_raises_409(test_db: AsyncSession):
     nc = await _open_nc(test_db, seed, equip)
 
     with pytest.raises(HTTPException) as exc_info:
-        await close_nonconformity(
-            nc.id, CloseNonConformityRequest(), test_db, seed.ctx
-        )
+        await close_nonconformity(nc.id, CloseNonConformityRequest(), test_db, seed.ctx)
     assert exc_info.value.status_code == 409
 
 
@@ -154,22 +147,20 @@ async def test_close_nc_by_non_manager_raises_403(test_db: AsyncSession):
 
     # Build an operator-level context (non-manager)
     non_manager_ctx = make_establishment_ctx(
-        seed.org, seed.est, seed.operator,  # operator as manager_user_id
+        seed.org,
+        seed.est,
+        seed.operator,  # operator as manager_user_id
         is_org_admin=False,
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await close_nonconformity(
-            nc.id, CloseNonConformityRequest(), test_db, non_manager_ctx
-        )
+        await close_nonconformity(nc.id, CloseNonConformityRequest(), test_db, non_manager_ctx)
     assert exc_info.value.status_code == 403
 
 
 async def test_list_nonconformities_by_non_manager_raises_403(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
-    non_manager_ctx = make_establishment_ctx(
-        seed.org, seed.est, seed.operator, is_org_admin=False
-    )
+    non_manager_ctx = make_establishment_ctx(seed.org, seed.est, seed.operator, is_org_admin=False)
     with pytest.raises(HTTPException) as exc_info:
         await list_nonconformities(test_db, non_manager_ctx)
     assert exc_info.value.status_code == 403

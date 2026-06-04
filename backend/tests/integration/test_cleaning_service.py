@@ -9,8 +9,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.cleaning.models import ScheduleType
-from app.modules.cleaning.models import CleaningStatus
+from app.modules.cleaning.models import CleaningStatus, ScheduleType
 from app.modules.cleaning.schemas import (
     BulkCleaningLogCreate,
     CleaningLogItem,
@@ -26,7 +25,6 @@ from app.modules.cleaning.service import (
     delete_zone,
     get_current_routine,
     get_routine_detail,
-    list_routines,
     list_zones,
 )
 from tests.integration.conftest import (
@@ -35,7 +33,6 @@ from tests.integration.conftest import (
     make_cleaning_task,
     make_cleaning_zone,
 )
-
 
 # ── Zone CRUD ────────────────────────────────────────────────────────────────
 
@@ -97,8 +94,12 @@ async def test_create_task_template(test_db: AsyncSession):
 
 async def test_get_current_routine_returns_opening_in_the_morning(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
-    opening = await make_cleaning_routine(test_db, seed.est, schedule_type=ScheduleType.OPENING, name="Opening")
-    closing = await make_cleaning_routine(test_db, seed.est, schedule_type=ScheduleType.CLOSING, name="Closing")
+    opening = await make_cleaning_routine(
+        test_db, seed.est, schedule_type=ScheduleType.OPENING, name="Opening"
+    )
+    await make_cleaning_routine(
+        test_db, seed.est, schedule_type=ScheduleType.CLOSING, name="Closing"
+    )
 
     morning = datetime(2024, 6, 1, 9, 0, tzinfo=ZoneInfo("Europe/Paris"))
     with patch("app.modules.cleaning.service.now_for_site", return_value=morning):
@@ -108,7 +109,7 @@ async def test_get_current_routine_returns_opening_in_the_morning(test_db: Async
 
 async def test_get_current_routine_returns_closing_in_afternoon(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
-    opening = await make_cleaning_routine(test_db, seed.est, schedule_type=ScheduleType.OPENING)
+    await make_cleaning_routine(test_db, seed.est, schedule_type=ScheduleType.OPENING)
     closing = await make_cleaning_routine(test_db, seed.est, schedule_type=ScheduleType.CLOSING)
 
     afternoon = datetime(2024, 6, 1, 14, 0, tzinfo=ZoneInfo("Europe/Paris"))
@@ -126,7 +127,7 @@ async def test_get_current_routine_fallback_when_no_matching_schedule(test_db: A
     afternoon = datetime(2024, 6, 1, 15, 0, tzinfo=ZoneInfo("Europe/Paris"))
     with patch("app.modules.cleaning.service.now_for_site", return_value=afternoon):
         result = await get_current_routine(test_db, seed.ctx)
-    assert result is not None  # fallback returns the available routine
+    assert result.routine_id == routine.id
 
 
 # ── Bulk logs ─────────────────────────────────────────────────────────────────

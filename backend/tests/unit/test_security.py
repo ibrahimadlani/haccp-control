@@ -16,7 +16,6 @@ from app.core.security import (
     verify_password,
 )
 
-
 # ── bcrypt ─────────────────────────────────────────────────────────────────────
 
 
@@ -129,9 +128,9 @@ def test_create_and_decode_organisation_token_round_trip():
 
 def test_decode_organisation_token_rejects_establishment_token():
     # An establishment token must not be accepted on the organisation endpoint
-    establishment_token = create_establishment_access_token({
-        "etablissement_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    })
+    establishment_token = create_establishment_access_token(
+        {"etablissement_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+    )
 
     with pytest.raises(ValueError, match="Invalid token purpose"):
         decode_organisation_access_token(establishment_token)

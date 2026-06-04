@@ -36,7 +36,9 @@ from app.modules.nonconformities.schemas import (
     NonConformityStatsResponse,
 )
 
-router = APIRouter(tags=["Non-Conformities"], dependencies=[Depends(require_feature(Feature.NONCONFORMITIES))])
+router = APIRouter(
+    tags=["Non-Conformities"], dependencies=[Depends(require_feature(Feature.NONCONFORMITIES))]
+)
 
 
 @router.get("/nonconformities", response_model=NonConformityListResponse)

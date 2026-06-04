@@ -99,7 +99,7 @@ async def read_establishment_metadata(
         HTTPException: 404 Not Found if the establishment does not exist
             or has been soft-deleted.
     """
-    return await service.read_establishment_public_metadata(etablissement_id, db)
+    return await service.read_establishment_public_metadata(str(etablissement_id), db)
 
 
 @router.post("/operator-sessions")

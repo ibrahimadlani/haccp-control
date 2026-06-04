@@ -157,7 +157,11 @@ async def delete_user(
 # ── Operators ─────────────────────────────────────────────────────────────────
 
 
-@router.get("/operators", response_model=OperatorListResponse, dependencies=[Depends(require_feature(Feature.OPERATORS))])
+@router.get(
+    "/operators",
+    response_model=OperatorListResponse,
+    dependencies=[Depends(require_feature(Feature.OPERATORS))],
+)
 async def list_operators(
     db: DatabaseSession,
     establishment: CurrentSite,
@@ -176,7 +180,12 @@ async def list_operators(
     return await service.get_operators(db, establishment, include_inactive)
 
 
-@router.post("/operators", response_model=OperatorResponse, status_code=201, dependencies=[Depends(require_feature(Feature.OPERATORS))])
+@router.post(
+    "/operators",
+    response_model=OperatorResponse,
+    status_code=201,
+    dependencies=[Depends(require_feature(Feature.OPERATORS))],
+)
 async def create_operator(
     payload: OperatorCreate, db: DatabaseSession, establishment: CurrentSite
 ) -> OperatorResponse:
@@ -196,7 +205,11 @@ async def create_operator(
     return await service.create_operator(payload, db, establishment)
 
 
-@router.patch("/operators/{operator_id}", response_model=OperatorResponse, dependencies=[Depends(require_feature(Feature.OPERATORS))])
+@router.patch(
+    "/operators/{operator_id}",
+    response_model=OperatorResponse,
+    dependencies=[Depends(require_feature(Feature.OPERATORS))],
+)
 async def update_operator(
     operator_id: UUID, payload: OperatorUpdate, db: DatabaseSession, establishment: CurrentSite
 ) -> OperatorResponse:
@@ -216,7 +229,11 @@ async def update_operator(
     return await service.update_operator(operator_id, payload, db, establishment)
 
 
-@router.post("/operators/{operator_id}/reset-pin", response_model=OperatorResponse, dependencies=[Depends(require_feature(Feature.OPERATORS))])
+@router.post(
+    "/operators/{operator_id}/reset-pin",
+    response_model=OperatorResponse,
+    dependencies=[Depends(require_feature(Feature.OPERATORS))],
+)
 async def reset_operator_pin(
     operator_id: UUID, payload: PinResetRequest, db: DatabaseSession, establishment: CurrentSite
 ) -> OperatorResponse:
@@ -234,7 +251,11 @@ async def reset_operator_pin(
     return await service.reset_pin(operator_id, payload, db, establishment)
 
 
-@router.delete("/operators/{operator_id}", status_code=204, dependencies=[Depends(require_feature(Feature.OPERATORS))])
+@router.delete(
+    "/operators/{operator_id}",
+    status_code=204,
+    dependencies=[Depends(require_feature(Feature.OPERATORS))],
+)
 async def deactivate_operator(
     operator_id: UUID, db: DatabaseSession, establishment: CurrentSite
 ) -> None:

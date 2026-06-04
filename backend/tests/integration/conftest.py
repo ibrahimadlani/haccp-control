@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentEstablishment
 from app.core.security import get_password_hash
-from app.modules.catalog.models import Supplier, SupplierCountry, SupplierStatus, Product
+from app.modules.catalog.models import Product, Supplier, SupplierCountry, SupplierStatus
 from app.modules.cleaning.models import (
     CleaningRoutine,
     CleaningTaskTemplate,
@@ -24,7 +24,6 @@ from app.modules.cleaning.models import (
 from app.modules.equipments.models import Equipement, TypeEquipement
 from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
-
 
 # ── Core tenant factories ─────────────────────────────────────────────────────
 
@@ -267,6 +266,7 @@ def make_establishment_ctx(
 @dataclass
 class BaseSeed:
     """Minimal tenant context: one org, one site, one manager, one operator."""
+
     org: Organisation
     est: Etablissement
     manager_role: Role

@@ -330,10 +330,7 @@ async def test_update_user_rejects_duplicate_email(
     )
 
     assert duplicate_update_response.status_code == 400
-    assert (
-        duplicate_update_response.json()["detail"]
-        == "Email is already used by another collaborator."
-    )
+    assert duplicate_update_response.json()["detail"] == "Email already used."
 
 
 @pytest.mark.asyncio

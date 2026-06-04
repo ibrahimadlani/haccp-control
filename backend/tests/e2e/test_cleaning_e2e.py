@@ -34,29 +34,39 @@ async def seed_cleaning(test_db: AsyncSession) -> CleaningSeed:
     await test_db.flush()
 
     est = Etablissement(organisation_id=org.id, nom_site="Cleaning Site", timezone="Europe/Paris")
-    manager_role = Role(nom_role="MANAGER_CL", permissions={"manager": True, "can_manage_device_login": True})
+    manager_role = Role(
+        nom_role="MANAGER_CL", permissions={"manager": True, "can_manage_device_login": True}
+    )
     operator_role = Role(nom_role="OPERATEUR_CL", permissions={})
     test_db.add_all([est, manager_role, operator_role])
     await test_db.flush()
 
     manager = Utilisateur(
-        nom="Clean", prenom="Manager",
+        nom="Clean",
+        prenom="Manager",
         email=manager_email,
         mot_de_passe_hash=get_password_hash("CleanPass123!"),
         code_pin=get_password_hash("1111"),
     )
     operator = Utilisateur(
-        nom="Clean", prenom="Operator",
+        nom="Clean",
+        prenom="Operator",
         email="cleaning.operator@test.com",
         mot_de_passe_hash=get_password_hash("OpPass123!"),
         code_pin=get_password_hash("2222"),
     )
     test_db.add_all([manager, operator])
     await test_db.flush()
-    test_db.add_all([
-        AffectationSite(utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id),
-        AffectationSite(utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id),
-    ])
+    test_db.add_all(
+        [
+            AffectationSite(
+                utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id
+            ),
+            AffectationSite(
+                utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id
+            ),
+        ]
+    )
     await test_db.commit()
     return CleaningSeed(
         organisation=org,
@@ -146,7 +156,7 @@ async def test_get_current_routine(client: AsyncClient, seed_cleaning: CleaningS
         json={"name": "Zone Current"},
         headers=headers,
     )
-    zone_id = zone_resp.json()["id"]
+    assert zone_resp.status_code == 201
     await client.post(
         "/api/v1/cleaning-routines",
         json={"name": "Routine Current", "schedule_type": "OPENING"},

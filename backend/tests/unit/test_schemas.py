@@ -5,13 +5,12 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from app.modules.equipments.models import TypeEquipement
 from app.modules.tenant.schemas import (
     EstablishmentSettings,
     OrganisationCreateRequest,
     SiteEquipmentCreateRequest,
 )
-from app.modules.equipments.models import TypeEquipement
-
 
 # ── SiteEquipmentCreateRequest ────────────────────────────────────────────────
 
@@ -104,7 +103,9 @@ def test_organisation_create_password_exactly_12_chars_valid():
 
 
 def test_establishment_settings_model_dump_round_trip():
-    settings = EstablishmentSettings.from_raw({"timeclock": {"enabled": False, "applies_to_managers": True}})
+    settings = EstablishmentSettings.from_raw(
+        {"timeclock": {"enabled": False, "applies_to_managers": True}}
+    )
     dumped = settings.model_dump()
     restored = EstablishmentSettings.from_raw(dumped)
     assert restored.timeclock.enabled is False

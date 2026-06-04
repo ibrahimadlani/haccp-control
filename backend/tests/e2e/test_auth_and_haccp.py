@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
-from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.equipments.models import Equipement
+from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 
 
