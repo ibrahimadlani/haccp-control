@@ -3,10 +3,16 @@
 Seed script — Lycée Jean Moulin · Cantine de démonstration
 Données réalistes pour un restaurant scolaire en Île-de-France.
 
-Usage (depuis le dossier backend/) :
+Applique automatiquement les migrations Alembic si le schéma n'existe pas encore.
+
+Usage :
     docker exec haccp_api uv run python scripts/seed_demo.py
+
+Pour forcer les migrations manuellement :
+    docker exec haccp_api uv run alembic upgrade head
 """
 import asyncio
+import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -18,9 +24,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, engine
 from app.core.security import get_password_hash
 from app.modules.catalog.models import Product, Supplier, SupplierCountry, SupplierStatus
 from app.modules.cleaning.models import (
@@ -129,9 +135,47 @@ def days_ago(n: int, hour=10, minute=0) -> datetime:
     return paris(datetime.now(TZ).replace(hour=hour, minute=minute, second=0, microsecond=0) - timedelta(days=n))
 
 
+async def schema_is_ready() -> bool:
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.tables "
+                "  WHERE table_schema = 'public' AND table_name = 'organisations'"
+                ")"
+            )
+        )
+        return bool(result.scalar())
+
+
+def run_migrations() -> None:
+    print("Schéma absent — application des migrations Alembic…")
+    subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"],
+        cwd=PROJECT_ROOT,
+        check=True,
+    )
+
+
+async def ensure_schema() -> None:
+    if await schema_is_ready():
+        return
+    run_migrations()
+    if not await schema_is_ready():
+        print(
+            "Erreur : le schéma PostgreSQL n'a pas pu être initialisé.\n"
+            "Vérifiez que la base est démarrée, puis exécutez :\n"
+            "  docker exec haccp_api uv run alembic upgrade head",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
+    await ensure_schema()
+
     async with AsyncSessionLocal() as s:
 
         # ── Organisation ──────────────────────────────────────────────────────
@@ -686,5 +730,12 @@ async def main() -> None:
     print("=" * 60 + "\n")
 
 
+async def run() -> None:
+    try:
+        await main()
+    finally:
+        await engine.dispose()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run())
