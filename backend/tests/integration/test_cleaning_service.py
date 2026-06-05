@@ -165,3 +165,70 @@ async def test_get_routine_detail_not_found_raises_404(test_db: AsyncSession):
     with pytest.raises(HTTPException) as exc_info:
         await get_routine_detail(uuid.uuid4(), test_db, seed.ctx)
     assert exc_info.value.status_code == 404
+
+
+async def test_get_routine_detail_includes_tasks(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    zone = await make_cleaning_zone(test_db, seed.est)
+    routine = await make_cleaning_routine(test_db, seed.est)
+    task1 = await make_cleaning_task(test_db, routine, zone, name="Tâche A")
+    task2 = await make_cleaning_task(test_db, routine, zone, name="Tâche B")
+
+    detail = await get_routine_detail(routine.id, test_db, seed.ctx)
+    task_names = {t.name for t in detail.tasks}
+    assert "Tâche A" in task_names
+    assert "Tâche B" in task_names
+
+
+async def test_bulk_create_logs_mixed_statuses(test_db: AsyncSession):
+    """DONE, ISSUE, and NOT_DONE statuses must all be accepted and stored."""
+    from app.modules.cleaning.models import CleaningStatus
+    seed = await make_base_seed(test_db)
+    zone = await make_cleaning_zone(test_db, seed.est)
+    routine = await make_cleaning_routine(test_db, seed.est)
+    task_done = await make_cleaning_task(test_db, routine, zone, name="T-DONE")
+    task_issue = await make_cleaning_task(test_db, routine, zone, name="T-ISSUE")
+    task_not_done = await make_cleaning_task(test_db, routine, zone, name="T-NOT-DONE")
+
+    payload = BulkCleaningLogCreate(items=[
+        CleaningLogItem(task_id=task_done.id, status=CleaningStatus.DONE),
+        CleaningLogItem(task_id=task_issue.id, status=CleaningStatus.ISSUE, comment="Mousse insuffisante"),
+        CleaningLogItem(task_id=task_not_done.id, status=CleaningStatus.NOT_DONE),
+    ])
+    result = await bulk_create_logs(payload, test_db, seed.ctx, seed.operator)
+    assert len(result.created) == 3
+    statuses = {log.status for log in result.created}
+    assert CleaningStatus.DONE in statuses
+    assert CleaningStatus.ISSUE in statuses
+    assert CleaningStatus.NOT_DONE in statuses
+
+
+async def test_get_current_routine_no_routines_raises_404(test_db: AsyncSession):
+    """No routines configured must raise 404, not a server error."""
+    seed = await make_base_seed(test_db)
+    morning = datetime(2024, 6, 1, 9, 0, tzinfo=ZoneInfo("Europe/Paris"))
+    with patch("app.modules.cleaning.service.now_for_site", return_value=morning):
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_routine(test_db, seed.ctx)
+    assert exc_info.value.status_code == 404
+
+
+async def test_create_zone_scoped_to_establishment(test_db: AsyncSession):
+    """Zones from one establishment must not appear in another's list."""
+    from tests.integration.conftest import (
+        make_organisation, make_establishment, make_role, make_user, make_establishment_ctx,
+    )
+    seed = await make_base_seed(test_db)
+    other_org = await make_organisation(test_db)
+    other_est = await make_establishment(test_db, other_org)
+    other_role = await make_role(test_db)
+    other_user = await make_user(test_db, other_org, other_est, other_role)
+    other_ctx = make_establishment_ctx(other_org, other_est, other_user)
+
+    await create_zone(CleaningZoneCreate(name="Zone privée autre établissement"), test_db, other_ctx)
+    await create_zone(CleaningZoneCreate(name="Zone propre"), test_db, seed.ctx)
+
+    response = await list_zones(test_db, seed.ctx)
+    names = {z.name for z in response.items}
+    assert "Zone privée autre établissement" not in names
+    assert "Zone propre" in names
