@@ -97,6 +97,16 @@ class ReceptionSession(TimestampMixin, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     bl_photo_s3_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    lab_report_s3_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    truck_condition_ok: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    packaging_integrity_ok: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    canned_goods_inspected_ok: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     status: Mapped[ReceptionStatus] = mapped_column(
         Enum(ReceptionStatus, name="reception_status", native_enum=True),
         nullable=False,

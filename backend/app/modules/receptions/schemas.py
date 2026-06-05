@@ -38,10 +38,16 @@ class ReceptionSessionCreate(BaseModel):
         supplier_id (UUID): The delivering supplier.
         received_at (datetime): Operator-supplied delivery timestamp. May be
             timezone-naive; the service normalises it to the site timezone.
+        truck_condition_ok (bool): Camion propre et température livraison OK.
+        packaging_integrity_ok (bool): Emballages intacts à réception.
+        canned_goods_inspected_ok (bool): Boîtes de conserve contrôlées (botulisme).
     """
 
     supplier_id: UUID
     received_at: datetime
+    truck_condition_ok: bool
+    packaging_integrity_ok: bool
+    canned_goods_inspected_ok: bool
 
 
 class ReceptionSessionResponse(BaseModel):
@@ -58,6 +64,10 @@ class ReceptionSessionResponse(BaseModel):
         supplier_id (UUID): Delivering supplier.
         received_at (datetime): Operator-supplied delivery timestamp.
         bl_photo_url (str | None): Public URL for the BL photo.
+        lab_report_url (str | None): Public URL for the microbiological lab report.
+        truck_condition_ok (bool): Delivery truck conformity checklist.
+        packaging_integrity_ok (bool): Packaging integrity checklist.
+        canned_goods_inspected_ok (bool): Canned goods inspection checklist.
         status (ReceptionStatus): OPEN or CLOSED.
         opened_at (datetime): Server-side session creation timestamp.
         closed_at (datetime | None): When the session was closed.
@@ -71,6 +81,10 @@ class ReceptionSessionResponse(BaseModel):
     supplier_id: UUID
     received_at: datetime
     bl_photo_url: str | None = None
+    lab_report_url: str | None = None
+    truck_condition_ok: bool
+    packaging_integrity_ok: bool
+    canned_goods_inspected_ok: bool
     status: ReceptionStatus
     opened_at: datetime
     closed_at: datetime | None

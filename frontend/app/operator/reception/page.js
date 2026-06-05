@@ -34,6 +34,7 @@ import {
   openReceptionSession,
 } from "@/lib/api/reception"
 import { createSupplier, getSuppliers } from "@/lib/api/suppliers"
+import { OperatorBackLink } from "@/components/operator/OperatorBackLink"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
 
@@ -305,9 +306,17 @@ function SessionOpener({ onSessionOpened }) {
   const [recvDate, setRecvDate] = useState(defaultDate)
   const [recvTime, setRecvTime] = useState(defaultTime)
   const [blPhoto, setBlPhoto] = useState(null)
+  const [labReportPhoto, setLabReportPhoto] = useState(null)
+  const [truckConditionOk, setTruckConditionOk] = useState(false)
+  const [packagingIntegrityOk, setPackagingIntegrityOk] = useState(false)
+  const [cannedGoodsInspectedOk, setCannedGoodsInspectedOk] = useState(false)
   const [loading, setLoading] = useState(false)
   const [addSupplierOpen, setAddSupplierOpen] = useState(false)
   const fileRef = useRef(null)
+  const labFileRef = useRef(null)
+
+  const checklistComplete =
+    truckConditionOk && packagingIntegrityOk && cannedGoodsInspectedOk
 
   useEffect(() => {
     const token = loadEstablishmentToken()
@@ -332,7 +341,15 @@ function SessionOpener({ onSessionOpened }) {
       const session = await openReceptionSession(
         token,
         { pin: operator.pin, operatorId: operator.id },
-        { supplierId, receivedAt, blPhoto },
+        {
+          supplierId,
+          receivedAt,
+          blPhoto,
+          labReportPhoto,
+          truckConditionOk,
+          packagingIntegrityOk,
+          cannedGoodsInspectedOk,
+        },
       )
       onSessionOpened(session)
     } catch (err) {
@@ -344,6 +361,7 @@ function SessionOpener({ onSessionOpened }) {
 
   return (
     <div className="mx-auto max-w-sm space-y-6">
+      <OperatorBackLink phase="morning" />
       <div>
         <h1 className="text-xl font-semibold">Nouvelle réception</h1>
         <p className="text-sm text-muted-foreground">Sélectionnez le fournisseur pour démarrer</p>
@@ -387,6 +405,27 @@ function SessionOpener({ onSessionOpened }) {
               onTimeChange={setRecvTime}
             />
 
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Check-list livraison</p>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm">Camion propre et température livraison OK</span>
+                <Switch checked={truckConditionOk} onCheckedChange={setTruckConditionOk} />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm">Emballages intacts à réception</span>
+                <Switch checked={packagingIntegrityOk} onCheckedChange={setPackagingIntegrityOk} />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm">Boîtes de conserve contrôlées</span>
+                <Switch checked={cannedGoodsInspectedOk} onCheckedChange={setCannedGoodsInspectedOk} />
+              </label>
+              {!checklistComplete && (
+                <p className="text-xs text-muted-foreground">
+                  Tous les points doivent être validés avant d&apos;ouvrir la réception.
+                </p>
+              )}
+            </div>
+
             <div className="space-y-1.5">
               <Label>Photo du BL (optionnel)</Label>
               <div className="flex items-center gap-2">
@@ -403,7 +442,32 @@ function SessionOpener({ onSessionOpened }) {
                 onChange={(e) => setBlPhoto(e.target.files?.[0] ?? null)} />
             </div>
 
-            <Button type="submit" className="w-full" disabled={!supplierId || loading}>
+            <div className="space-y-1.5">
+              <Label>Fiche analyse labo (optionnel)</Label>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => labFileRef.current?.click()}>
+                  {labReportPhoto ? labReportPhoto.name : "Choisir un fichier"}
+                </Button>
+                {labReportPhoto && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setLabReportPhoto(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <input
+                ref={labFileRef}
+                type="file"
+                accept="image/jpeg,image/png"
+                className="hidden"
+                onChange={(e) => setLabReportPhoto(e.target.files?.[0] ?? null)}
+              />
+            </div>
+
+            <Button type="submit" className="w-full" disabled={!supplierId || !checklistComplete || loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Démarrer la réception
             </Button>
@@ -505,7 +569,7 @@ function ScanAndGo({ session }) {
     try {
       await closeReceptionSession(token, { pin: operator.pin, operatorId: operator.id }, session.id)
       toast.success("Réception clôturée")
-      router.replace("/operator")
+      router.replace("/operator?phase=morning")
     } catch (err) {
       toast.error(String(err.message))
       setClosing(false)
@@ -514,6 +578,7 @@ function ScanAndGo({ session }) {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
+      <OperatorBackLink phase="morning" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Scan & Go</h1>

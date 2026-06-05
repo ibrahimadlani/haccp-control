@@ -132,7 +132,11 @@ async def open_reception_session(
     s3: S3Dep,
     supplier_id: Annotated[UUID, Form()],
     received_at: Annotated[datetime, Form()],
+    truck_condition_ok: Annotated[bool, Form()],
+    packaging_integrity_ok: Annotated[bool, Form()],
+    canned_goods_inspected_ok: Annotated[bool, Form()],
     bl_photo: Annotated[UploadFile | None, File()] = None,
+    lab_report_photo: Annotated[UploadFile | None, File()] = None,
 ) -> ReceptionSessionResponse:
     """Open a new reception session for a supplier delivery.
 
@@ -151,8 +155,16 @@ async def open_reception_session(
     Returns:
         ReceptionSessionResponse: The created session with BL photo URL.
     """
-    payload = ReceptionSessionCreate(supplier_id=supplier_id, received_at=received_at)
-    return await service.open_session(payload, db, establishment, operator, bl_photo, s3)
+    payload = ReceptionSessionCreate(
+        supplier_id=supplier_id,
+        received_at=received_at,
+        truck_condition_ok=truck_condition_ok,
+        packaging_integrity_ok=packaging_integrity_ok,
+        canned_goods_inspected_ok=canned_goods_inspected_ok,
+    )
+    return await service.open_session(
+        payload, db, establishment, operator, bl_photo, lab_report_photo, s3
+    )
 
 
 @router.get("/reception-sessions/{session_id}", response_model=ReceptionSessionDetailResponse)

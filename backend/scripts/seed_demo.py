@@ -51,6 +51,7 @@ from app.modules.nonconformities.models import (
     WorkflowType,
 )
 from app.modules.personnel.models import AffectationSite, Role, Utilisateur
+from app.modules.production.models import DailyMenuItem
 from app.modules.receptions.models import ReceptionItem, ReceptionSession, ReceptionStatus
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 
@@ -354,6 +355,20 @@ async def main() -> None:
                 "REFRIGERATEUR_POISSON",
                 Decimal("0"),
                 Decimal("2"),
+            ),
+            (
+                UUID("77777777-7777-4777-8777-777777777778"),
+                "Friteuse — Ligne self",
+                "CHAUFFE_ASSIETTE_FOUR",
+                Decimal("160"),
+                Decimal("190"),
+            ),
+            (
+                UUID("77777777-7777-4777-8777-777777777779"),
+                "Friteuse — Cuisine centrale",
+                "CHAUFFE_ASSIETTE_FOUR",
+                Decimal("160"),
+                Decimal("190"),
             ),
         ]
         equip_objects = {}
@@ -1154,6 +1169,58 @@ async def main() -> None:
         )
         s.add(log_issue)
 
+        # ── Menu du jour (tablette allergènes) ───────────────────────────────
+        menu_today = datetime.now(TZ).date()
+        MENU_DEMO = [
+            (
+                UUID("d0000001-0000-4000-8000-000000000001"),
+                "Déjeuner",
+                "Blanquette de veau",
+                ["Gluten", "Lait", "Céleri"],
+            ),
+            (
+                UUID("d0000001-0000-4000-8000-000000000002"),
+                "Déjeuner",
+                "Gratin dauphinois",
+                ["Lait"],
+            ),
+            (
+                UUID("d0000001-0000-4000-8000-000000000003"),
+                "Déjeuner",
+                "Salade composée",
+                ["Œufs", "Moutarde", "Sésame"],
+            ),
+            (
+                UUID("d0000001-0000-4000-8000-000000000004"),
+                "Déjeuner",
+                "Poisson pané (cabillaud)",
+                ["Gluten", "Poisson", "Œufs"],
+            ),
+            (
+                UUID("d0000001-0000-4000-8000-000000000005"),
+                "Déjeuner",
+                "Mousse au chocolat",
+                ["Lait", "Œufs"],
+            ),
+            (
+                UUID("d0000001-0000-4000-8000-000000000006"),
+                "Goûter",
+                "Fruits de saison",
+                [],
+            ),
+        ]
+        for mid, meal, dish, allergens in MENU_DEMO:
+            await upsert(
+                s,
+                DailyMenuItem,
+                mid,
+                establishment_id=site.id,
+                service_date=menu_today,
+                meal_service=meal,
+                dish_name=dish,
+                allergens=allergens,
+            )
+
         await s.commit()
 
     # ── Résumé ────────────────────────────────────────────────────────────────
@@ -1172,7 +1239,8 @@ async def main() -> None:
     print("\n  ── Données insérées ─────────────────────────────────────")
     print("  • 6 fournisseurs (viandes, bio, laitier, marée, boulang., épicerie)")
     print("  • 20 produits avec/sans contrôle température")
-    print("  • 7 équipements (chambres froides, réfrigérateurs, cellule)")
+    print("  • 9 équipements (chambres froides, réfrigérateurs, friteuses)")
+    print("  • Menu du jour avec allergènes (6 plats)")
     print("  • 7 zones de nettoyage + 3 routines + 26 tâches")
     print("  • Pointages sur 3 jours (chef + cuisinière)")
     print("  • 10 relevés de température (2 NC)")

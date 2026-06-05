@@ -102,6 +102,13 @@ async def seed_receptions(test_db: AsyncSession) -> ReceptionSeed:
     )
 
 
+_RECEPTION_CHECKLIST = {
+    "truck_condition_ok": "true",
+    "packaging_integrity_ok": "true",
+    "canned_goods_inspected_ok": "true",
+}
+
+
 async def _login(client: AsyncClient, seed: ReceptionSeed) -> str:
     resp = await client.post(
         "/api/v1/establishment-sessions",
@@ -128,6 +135,7 @@ async def test_open_reception_session(client: AsyncClient, seed_receptions: Rece
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -150,6 +158,7 @@ async def test_add_reception_item(client: AsyncClient, seed_receptions: Receptio
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -182,6 +191,7 @@ async def test_get_reception_session_detail(client: AsyncClient, seed_receptions
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -208,6 +218,7 @@ async def test_close_reception_session(client: AsyncClient, seed_receptions: Rec
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers_with_pin,
     )

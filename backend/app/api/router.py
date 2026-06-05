@@ -15,6 +15,7 @@ from app.modules.equipments.router import router as equipments_router
 from app.modules.haccp.router import router as haccp_router
 from app.modules.nonconformities.router import router as nonconformities_router
 from app.modules.personnel.router import router as personnel_router
+from app.modules.production.router import router as production_router
 from app.modules.receptions.router import router as receptions_router
 from app.modules.tenant.router import router as tenant_router
 
@@ -29,5 +30,6 @@ api_router.include_router(catalog_router)
 api_router.include_router(equipments_router)
 api_router.include_router(receptions_router)
 api_router.include_router(haccp_router)
+api_router.include_router(production_router)
 api_router.include_router(cleaning_router)
 api_router.include_router(nonconformities_router)

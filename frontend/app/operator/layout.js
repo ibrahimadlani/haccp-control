@@ -27,7 +27,7 @@ export default function OperatorLayout({ children }) {
     <TimeclockProvider>
       <div className="flex min-h-screen flex-col">
         <DeviceHeader />
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        <main className="mx-auto w-full max-w-3xl flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </TimeclockProvider>
   )

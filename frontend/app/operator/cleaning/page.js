@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { OperatorBackLink } from "@/components/operator/OperatorBackLink"
 import { fetchCurrentRoutine, submitBulkCleaning } from "@/lib/api/cleaning"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
@@ -303,7 +304,7 @@ export default function CleaningPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
-      {/* Header */}
+      <OperatorBackLink phase="closing" />
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-semibold">{routine.routine_name}</h1>

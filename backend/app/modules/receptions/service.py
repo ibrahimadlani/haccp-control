@@ -147,6 +147,7 @@ async def open_session(
     establishment: CurrentEstablishment,
     operator: Utilisateur,
     bl_photo: UploadFile | None,
+    lab_report_photo: UploadFile | None,
     s3: S3Service,
 ) -> ReceptionSessionResponse:
     """Open a new reception session for a supplier delivery.
@@ -169,9 +170,23 @@ async def open_session(
     Returns:
         ReceptionSessionResponse: The created session with BL photo URL.
     """
+    if not (
+        payload.truck_condition_ok
+        and payload.packaging_integrity_ok
+        and payload.canned_goods_inspected_ok
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La check-list de conformité livraison doit être entièrement validée.",
+        )
+
     bl_key: str | None = None
     if bl_photo is not None:
         bl_key = await s3.upload_image(bl_photo, prefix="bl-photos")
+
+    lab_key: str | None = None
+    if lab_report_photo is not None:
+        lab_key = await s3.upload_image(lab_report_photo, prefix="lab-reports")
 
     site_tz = ZoneInfo(establishment.timezone)
     received_at = (
@@ -186,6 +201,10 @@ async def open_session(
         supplier_id=payload.supplier_id,
         received_at=received_at,
         bl_photo_s3_key=bl_key,
+        lab_report_s3_key=lab_key,
+        truck_condition_ok=payload.truck_condition_ok,
+        packaging_integrity_ok=payload.packaging_integrity_ok,
+        canned_goods_inspected_ok=payload.canned_goods_inspected_ok,
         opened_at=now_for_site(establishment.timezone),
     )
     db.add(session)
@@ -416,6 +435,9 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         ReceptionSessionResponse: The response DTO with optional photo URL.
     """
     bl_url = s3.object_url(session.bl_photo_s3_key) if s3 and session.bl_photo_s3_key else None
+    lab_url = (
+        s3.object_url(session.lab_report_s3_key) if s3 and session.lab_report_s3_key else None
+    )
     return ReceptionSessionResponse(
         id=session.id,
         establishment_id=session.establishment_id,
@@ -423,6 +445,10 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         supplier_id=session.supplier_id,
         received_at=session.received_at,
         bl_photo_url=bl_url,
+        lab_report_url=lab_url,
+        truck_condition_ok=session.truck_condition_ok,
+        packaging_integrity_ok=session.packaging_integrity_ok,
+        canned_goods_inspected_ok=session.canned_goods_inspected_ok,
         status=session.status,
         opened_at=session.opened_at,
         closed_at=session.closed_at,
