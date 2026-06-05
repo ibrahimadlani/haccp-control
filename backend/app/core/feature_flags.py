@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import Depends, HTTPException, status
 
 from app.core.dependencies import CurrentEstablishment, get_current_establishment
@@ -15,7 +17,7 @@ def require_feature(feature: Feature):
     """
 
     async def _guard(
-        establishment: CurrentEstablishment = Depends(get_current_establishment),
+        establishment: Annotated[CurrentEstablishment, Depends(get_current_establishment)],
     ) -> None:
         from app.modules.tenant.schemas import EstablishmentSettings
 
@@ -23,7 +25,9 @@ def require_feature(feature: Feature):
         if not settings.is_enabled(feature):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"La fonctionnalité '{feature.value}' est désactivée pour cet établissement.",
+                detail=(
+                    f"La fonctionnalité '{feature.value}' est désactivée pour cet établissement."
+                ),
             )
 
     return _guard

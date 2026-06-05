@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.haccp.models import Pointage, TypeEvenementPointage
+from app.modules.haccp.models import TypeEvenementPointage
 from app.modules.haccp.schemas import PointageCreate, TemperatureRecordCreate, TimeclockStatus
 from app.modules.haccp.service import (
     create_temperature_record,
@@ -21,11 +21,7 @@ from tests.integration.conftest import (
     make_equipment,
     make_establishment,
     make_organisation,
-    make_role,
-    make_user,
-    make_establishment_ctx,
 )
-
 
 # ── Temperature records ───────────────────────────────────────────────────────
 
@@ -45,9 +41,15 @@ async def test_create_temperature_record_compliant_no_nc(test_db: AsyncSession):
     assert result.action_corrective_required is False
 
     # No NC must exist in DB
-    ncs = (await test_db.execute(
-        select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
-    )).scalars().all()
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 0
 
 
@@ -66,9 +68,11 @@ async def test_create_temperature_record_non_compliant_opens_nc(test_db: AsyncSe
     assert result.action_corrective_required is True
 
     # NC must exist in DB with OPEN status
-    nc = (await test_db.execute(
-        select(NonConformity).where(NonConformity.id == result.nonconformity_id)
-    )).scalar_one()
+    nc = (
+        await test_db.execute(
+            select(NonConformity).where(NonConformity.id == result.nonconformity_id)
+        )
+    ).scalar_one()
     assert nc.status == NonConformityStatus.OPEN
 
 
@@ -113,7 +117,9 @@ async def test_timeclock_full_cycle(test_db: AsyncSession):
     # CLOCK_IN
     result = await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_IN),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     assert result.type_evenement == TypeEvenementPointage.CLOCK_IN
 
@@ -123,7 +129,9 @@ async def test_timeclock_full_cycle(test_db: AsyncSession):
     # BREAK_START
     await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.BREAK_START),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     status_after_break = await get_operator_timeclock_status(test_db, seed.ctx, seed.operator)
     assert status_after_break.status == TimeclockStatus.ON_BREAK
@@ -131,7 +139,9 @@ async def test_timeclock_full_cycle(test_db: AsyncSession):
     # BREAK_END
     await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.BREAK_END),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     status_after_end = await get_operator_timeclock_status(test_db, seed.ctx, seed.operator)
     assert status_after_end.status == TimeclockStatus.ACTIVE
@@ -139,7 +149,9 @@ async def test_timeclock_full_cycle(test_db: AsyncSession):
     # CLOCK_OUT
     await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_OUT),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     status_final = await get_operator_timeclock_status(test_db, seed.ctx, seed.operator)
     assert status_final.status == TimeclockStatus.CLOCKED_OUT
@@ -150,34 +162,46 @@ async def test_timeclock_invalid_transition_clock_in_while_active_raises_409(tes
 
     await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_IN),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     with pytest.raises(HTTPException) as exc_info:
         await create_time_clock_event(
             PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_IN),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 409
 
 
-async def test_timeclock_invalid_transition_break_end_when_clocked_out_raises_409(test_db: AsyncSession):
+async def test_timeclock_invalid_transition_break_end_when_clocked_out_raises_409(
+    test_db: AsyncSession,
+):
     seed = await make_base_seed(test_db)
 
     with pytest.raises(HTTPException) as exc_info:
         await create_time_clock_event(
             PointageCreate(type_evenement=TypeEvenementPointage.BREAK_END),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 409
 
 
-async def test_timeclock_invalid_transition_clock_out_when_clocked_out_raises_409(test_db: AsyncSession):
+async def test_timeclock_invalid_transition_clock_out_when_clocked_out_raises_409(
+    test_db: AsyncSession,
+):
     seed = await make_base_seed(test_db)
 
     with pytest.raises(HTTPException) as exc_info:
         await create_time_clock_event(
             PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_OUT),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 409
 
@@ -188,9 +212,11 @@ async def test_get_establishment_operator_statuses_returns_all_operators(test_db
     # Clock in the operator
     await create_time_clock_event(
         PointageCreate(type_evenement=TypeEvenementPointage.CLOCK_IN),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     result = await get_establishment_operator_statuses(test_db, seed.ctx)
-    operator_ids = {item.operator_id for item in result.operators}
+    operator_ids = {item.operator_id for item in result.items}
     assert seed.operator.id in operator_ids

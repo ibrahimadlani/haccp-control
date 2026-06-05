@@ -32,18 +32,23 @@ async def seed_catalog(test_db: AsyncSession) -> CatalogSeed:
     await test_db.flush()
 
     est = Etablissement(organisation_id=org.id, nom_site="Catalog Site", timezone="Europe/Paris")
-    role = Role(nom_role="MANAGER_CAT", permissions={"manager": True, "can_manage_device_login": True})
+    role = Role(
+        nom_role="MANAGER_CAT", permissions={"manager": True, "can_manage_device_login": True}
+    )
     test_db.add_all([est, role])
     await test_db.flush()
 
     manager = Utilisateur(
-        nom="Catalog", prenom="Manager",
+        nom="Catalog",
+        prenom="Manager",
         email=manager_email,
         mot_de_passe_hash=get_password_hash("CatalogPass123!"),
     )
     test_db.add(manager)
     await test_db.flush()
-    test_db.add(AffectationSite(utilisateur_id=manager.id, etablissement_id=est.id, role_id=role.id))
+    test_db.add(
+        AffectationSite(utilisateur_id=manager.id, etablissement_id=est.id, role_id=role.id)
+    )
     await test_db.commit()
     return CatalogSeed(organisation=org, etablissement=est, manager=manager, manager_role=role)
 
@@ -155,7 +160,11 @@ async def test_delete_product(client: AsyncClient, seed_catalog: CatalogSeed):
 
     product_resp = await client.post(
         "/api/v1/products",
-        json={"name": "Produit à supprimer", "supplier_id": supplier_id, "has_temperature_control": False},
+        json={
+            "name": "Produit à supprimer",
+            "supplier_id": supplier_id,
+            "has_temperature_control": False,
+        },
         headers=headers,
     )
     product_id = product_resp.json()["id"]

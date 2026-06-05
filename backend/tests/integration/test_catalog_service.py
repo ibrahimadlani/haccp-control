@@ -25,7 +25,6 @@ from tests.integration.conftest import (
     make_supplier,
 )
 
-
 # ── Supplier CRUD ─────────────────────────────────────────────────────────────
 
 
@@ -61,6 +60,7 @@ async def test_get_suppliers_status_filter(test_db: AsyncSession):
 async def test_get_supplier_by_id_not_found_raises_404(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
     import uuid
+
     with pytest.raises(HTTPException) as exc_info:
         await get_supplier_by_id(uuid.uuid4(), test_db, seed.ctx)
     assert exc_info.value.status_code == 404
@@ -81,10 +81,12 @@ async def test_soft_delete_supplier_deactivates(test_db: AsyncSession):
 
     await soft_delete_supplier(supplier.id, test_db, seed.ctx)
     from sqlalchemy import select
+
     from app.modules.catalog.models import Supplier
-    updated = (await test_db.execute(
-        select(Supplier).where(Supplier.id == supplier.id)
-    )).scalar_one()
+
+    updated = (
+        await test_db.execute(select(Supplier).where(Supplier.id == supplier.id))
+    ).scalar_one()
     assert updated.is_active is False
 
 
@@ -119,6 +121,8 @@ async def test_create_product_approved_supplier(test_db: AsyncSession):
 async def test_create_product_inactive_supplier_raises_422(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est, status=SupplierStatus.PENDING)
+    supplier.is_active = False
+    await test_db.flush()
 
     payload = ProductCreate(
         name="Produit test",
@@ -148,10 +152,10 @@ async def test_soft_delete_product(test_db: AsyncSession):
 
     await soft_delete_product(product.id, test_db, seed.ctx)
     from sqlalchemy import select
+
     from app.modules.catalog.models import Product
-    updated = (await test_db.execute(
-        select(Product).where(Product.id == product.id)
-    )).scalar_one()
+
+    updated = (await test_db.execute(select(Product).where(Product.id == product.id))).scalar_one()
     assert updated.is_active is False
 
 
@@ -161,8 +165,6 @@ async def test_list_products_for_reception_no_manager_required(test_db: AsyncSes
     await make_product(test_db, seed.est, supplier, name="Produit réception")
 
     # Use non-manager context — should NOT raise 403
-    non_manager_ctx = make_establishment_ctx(
-        seed.org, seed.est, seed.operator, is_org_admin=False
-    )
+    non_manager_ctx = make_establishment_ctx(seed.org, seed.est, seed.operator, is_org_admin=False)
     response = await list_products_for_reception(test_db, non_manager_ctx)
     assert any(p.name == "Produit réception" for p in response.items)

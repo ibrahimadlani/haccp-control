@@ -38,19 +38,23 @@ async def seed_ff_data(test_db: AsyncSession) -> FeatureFlagSeed:
     await test_db.flush()
 
     est = Etablissement(organisation_id=org.id, nom_site="FF Site", timezone="Europe/Paris")
-    manager_role = Role(nom_role="MANAGER_FF", permissions={"manager": True, "can_manage_device_login": True})
+    manager_role = Role(
+        nom_role="MANAGER_FF", permissions={"manager": True, "can_manage_device_login": True}
+    )
     operator_role = Role(nom_role="OPERATEUR_FF", permissions={})
     test_db.add_all([est, manager_role, operator_role])
     await test_db.flush()
 
     manager = Utilisateur(
-        nom="Flagman", prenom="Alice",
+        nom="Flagman",
+        prenom="Alice",
         email=manager_email,
         mot_de_passe_hash=get_password_hash("ManagerPass123!"),
         code_pin=get_password_hash("1111"),
     )
     operator = Utilisateur(
-        nom="Opérateur", prenom="Bob",
+        nom="Opérateur",
+        prenom="Bob",
         email="ff.operator@test.com",
         mot_de_passe_hash=get_password_hash("OperPass123!"),
         code_pin=get_password_hash("9999"),
@@ -58,10 +62,16 @@ async def seed_ff_data(test_db: AsyncSession) -> FeatureFlagSeed:
     test_db.add_all([manager, operator])
     await test_db.flush()
 
-    test_db.add_all([
-        AffectationSite(utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id),
-        AffectationSite(utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id),
-    ])
+    test_db.add_all(
+        [
+            AffectationSite(
+                utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id
+            ),
+            AffectationSite(
+                utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id
+            ),
+        ]
+    )
     equip = Equipement(
         etablissement_id=est.id,
         nom="Chambre froide FF",
@@ -97,7 +107,9 @@ async def _login(client: AsyncClient, seed: FeatureFlagSeed) -> str:
 # ── Cleaning feature toggle ───────────────────────────────────────────────────
 
 
-async def test_cleaning_feature_disabled_returns_403(client: AsyncClient, seed_ff_data: FeatureFlagSeed):
+async def test_cleaning_feature_disabled_returns_403(
+    client: AsyncClient, seed_ff_data: FeatureFlagSeed
+):
     token = await _login(client, seed_ff_data)
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -115,7 +127,9 @@ async def test_cleaning_feature_disabled_returns_403(client: AsyncClient, seed_f
     assert "cleaning" in routines_resp.json()["detail"]
 
 
-async def test_cleaning_feature_re_enabled_returns_200(client: AsyncClient, seed_ff_data: FeatureFlagSeed):
+async def test_cleaning_feature_re_enabled_returns_200(
+    client: AsyncClient, seed_ff_data: FeatureFlagSeed
+):
     token = await _login(client, seed_ff_data)
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -140,7 +154,9 @@ async def test_cleaning_feature_re_enabled_returns_200(client: AsyncClient, seed
 # ── Timeclock feature toggle ──────────────────────────────────────────────────
 
 
-async def test_timeclock_disabled_blocks_clock_in(client: AsyncClient, seed_ff_data: FeatureFlagSeed):
+async def test_timeclock_disabled_blocks_clock_in(
+    client: AsyncClient, seed_ff_data: FeatureFlagSeed
+):
     token = await _login(client, seed_ff_data)
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -167,7 +183,9 @@ async def test_timeclock_disabled_blocks_clock_in(client: AsyncClient, seed_ff_d
 # ── Suppliers feature toggle ──────────────────────────────────────────────────
 
 
-async def test_suppliers_feature_disabled_blocks_get_suppliers(client: AsyncClient, seed_ff_data: FeatureFlagSeed):
+async def test_suppliers_feature_disabled_blocks_get_suppliers(
+    client: AsyncClient, seed_ff_data: FeatureFlagSeed
+):
     token = await _login(client, seed_ff_data)
     headers = {"Authorization": f"Bearer {token}"}
 

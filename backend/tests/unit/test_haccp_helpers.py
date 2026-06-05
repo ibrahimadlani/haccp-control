@@ -1,11 +1,9 @@
 """Unit tests for pure helper functions in HACCP and related service modules."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
-
-import pytest
 
 from app.modules.cleaning.models import ScheduleType
 from app.modules.cleaning.service import _infer_schedule_type
@@ -17,7 +15,6 @@ from app.modules.haccp.service import (
     _status_from_event,
 )
 from app.modules.nonconformities.service import _deviation_celsius
-
 
 # ── _is_temperature_compliant ─────────────────────────────────────────────────
 
@@ -88,7 +85,7 @@ def test_normalize_for_site_naive_datetime_attaches_timezone():
 
 
 def test_normalize_for_site_aware_datetime_converts_timezone():
-    utc_dt = datetime(2024, 6, 1, 8, 0, 0, tzinfo=timezone.utc)
+    utc_dt = datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC)
     result = _normalize_for_site(utc_dt, "Europe/Paris")
     # Paris is UTC+2 in summer, so 8 UTC = 10 Paris
     assert result.tzinfo is not None

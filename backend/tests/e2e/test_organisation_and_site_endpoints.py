@@ -8,9 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
-from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.equipments.models import Equipement
-from app.modules.tenant.models import Abonnement, Etablissement, Organisation, StatutAbonnement, TypeSecteur
+from app.modules.personnel.models import AffectationSite, Role, Utilisateur
+from app.modules.tenant.models import (
+    Abonnement,
+    Etablissement,
+    Organisation,
+    StatutAbonnement,
+    TypeSecteur,
+)
 
 
 @dataclass(frozen=True)
@@ -116,8 +122,11 @@ async def seed_organisation_admin_data(test_db: AsyncSession) -> OrganisationAdm
 
 @pytest.mark.asyncio
 async def test_create_organisation_endpoint(client: AsyncClient) -> None:
+    from app.core.config import settings
+
     response = await client.post(
         "/api/v1/organisations",
+        headers={"X-Platform-Admin-Key": settings.PLATFORM_ADMIN_KEY},
         json={
             "nom_entite": "Nouvelle Organisation SaaS",
             "type_secteur": "PRIVE",
