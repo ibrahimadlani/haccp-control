@@ -1,15 +1,15 @@
 """Integration tests for app/modules/tenant/service.py."""
 
+from datetime import UTC, datetime
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.tenant.models import Abonnement, StatutAbonnement
 from app.modules.tenant.schemas import (
-    EstablishmentSettings,
     EstablishmentSettingsUpdateRequest,
     FeatureToggle,
-    PlanLimits,
     SiteAffectationCreateRequest,
     TimeclockSettings,
 )
@@ -22,14 +22,8 @@ from app.modules.tenant.service import (
 )
 from tests.integration.conftest import (
     make_base_seed,
-    make_establishment,
     make_establishment_ctx,
-    make_organisation,
-    make_role,
-    make_user,
 )
-from datetime import UTC, datetime
-
 
 # ── EstablishmentSettings ─────────────────────────────────────────────────────
 
@@ -67,9 +61,7 @@ async def test_update_settings_timeclock(test_db: AsyncSession):
 
 async def test_update_settings_non_org_admin_raises_403(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
-    non_admin_ctx = make_establishment_ctx(
-        seed.org, seed.est, seed.manager, is_org_admin=False
-    )
+    non_admin_ctx = make_establishment_ctx(seed.org, seed.est, seed.manager, is_org_admin=False)
     with pytest.raises(HTTPException) as exc_info:
         await update_establishment_settings(
             EstablishmentSettingsUpdateRequest(cleaning=FeatureToggle(enabled=False)),

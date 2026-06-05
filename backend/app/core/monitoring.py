@@ -31,7 +31,7 @@ from starlette.responses import Response
 from app.core.config import settings
 
 
-def _sanitize_sentry_event(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+def _sanitize_sentry_event(event: Any, hint: Any) -> Any | None:
     """Strip sensitive headers from Sentry breadcrumbs and request data.
 
     Removes ``Authorization`` and ``X-Device-Pin`` headers from all

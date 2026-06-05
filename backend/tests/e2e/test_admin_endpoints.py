@@ -178,4 +178,4 @@ async def test_create_user_with_multi_assignment_success_and_duplicate_email(
         json=payload,
     )
     assert duplicate_response.status_code == 400
-    assert duplicate_response.json()["detail"] == "Email is already used by another collaborator."
+    assert duplicate_response.json()["detail"] == "Email already used."
