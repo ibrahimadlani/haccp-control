@@ -22,8 +22,10 @@ from app.modules.catalog.service import (
     get_suppliers,
     list_products_for_reception,
     soft_delete_product,
+    soft_delete_product_for_reception,
     soft_delete_supplier,
     update_product,
+    update_product_for_reception,
     update_supplier,
 )
 from tests.integration.conftest import (
@@ -281,3 +283,54 @@ async def test_create_product_for_reception(test_db: AsyncSession):
     result = await create_product_for_reception(payload, test_db, seed.ctx)
     assert result.name == "Produit rapide"
     assert result.id is not None
+
+
+async def test_update_product_for_reception(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    supplier = await make_supplier(test_db, seed.est)
+    product = await make_product(test_db, seed.est, supplier, name="Produit original")
+
+    payload = ReceptionProductCreate(name="Produit modifié", supplier_id=supplier.id)
+    result = await update_product_for_reception(product.id, payload, test_db, seed.ctx)
+    assert result.name == "Produit modifié"
+
+
+async def test_soft_delete_product_for_reception(test_db: AsyncSession):
+    from sqlalchemy import select
+
+    from app.modules.catalog.models import Product
+
+    seed = await make_base_seed(test_db)
+    supplier = await make_supplier(test_db, seed.est)
+    product = await make_product(test_db, seed.est, supplier, name="À supprimer réception")
+
+    await soft_delete_product_for_reception(product.id, test_db, seed.ctx)
+
+    row = (await test_db.execute(select(Product).where(Product.id == product.id))).scalar_one()
+    assert row.is_active is False
+
+
+async def test_list_products_for_reception_supplier_filter(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    supplier_a = await make_supplier(test_db, seed.est, name="Fournisseur A")
+    supplier_b = await make_supplier(test_db, seed.est, name="Fournisseur B")
+    await make_product(test_db, seed.est, supplier_a, name="Produit A")
+    await make_product(test_db, seed.est, supplier_b, name="Produit B")
+
+    response = await list_products_for_reception(test_db, seed.ctx, supplier_id=supplier_a.id)
+    names = {p.name for p in response.items}
+    assert "Produit A" in names
+    assert "Produit B" not in names
+
+
+async def test_update_product_with_new_supplier(test_db: AsyncSession):
+    """Covers the _assert_supplier_in_scope call when supplier_id changes."""
+    seed = await make_base_seed(test_db)
+    supplier_a = await make_supplier(test_db, seed.est)
+    supplier_b = await make_supplier(test_db, seed.est, name="Nouveau fournisseur")
+    product = await make_product(test_db, seed.est, supplier_a)
+
+    result = await update_product(
+        product.id, ProductUpdate(supplier_id=supplier_b.id), test_db, seed.ctx
+    )
+    assert result.supplier_id == supplier_b.id

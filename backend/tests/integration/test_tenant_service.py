@@ -240,3 +240,48 @@ async def test_create_organization_establishment_wrong_org_raises_403(test_db: A
     with pytest.raises(HTTPException) as exc_info:
         await create_organization_establishment(seed.org.id, payload, test_db, other_org_ctx)
     assert exc_info.value.status_code == 403
+
+
+# ── Site equipment (tenant service) ──────────────────────────────────────────
+
+
+async def test_list_site_equipment_returns_active(test_db: AsyncSession):
+    from app.modules.tenant.service import list_site_equipment
+
+    seed = await make_base_seed(test_db)
+    from tests.integration.conftest import make_equipment
+
+    await make_equipment(test_db, seed.est, nom="Frigo site")
+
+    result = await list_site_equipment(seed.est.id, test_db, seed.ctx)
+    names = {e.name for e in result.items}
+    assert "Frigo site" in names
+
+
+async def test_create_site_equipment_happy_path(test_db: AsyncSession):
+    from decimal import Decimal
+
+    from app.modules.equipments.models import TypeEquipement
+    from app.modules.tenant.schemas import SiteEquipmentCreateRequest
+    from app.modules.tenant.service import create_site_equipment
+
+    seed = await make_base_seed(test_db)
+    payload = SiteEquipmentCreateRequest(
+        name="Cellule de refroidissement",
+        equipment_type=TypeEquipement.CELLULE_REFROIDISSEMENT,
+        min_target_temperature=Decimal("0.00"),
+        max_target_temperature=Decimal("4.00"),
+    )
+    result = await create_site_equipment(seed.est.id, payload, test_db, seed.ctx)
+    assert result.name == "Cellule de refroidissement"
+    assert result.etablissement_id == seed.est.id
+
+
+async def test_list_site_users_returns_assigned(test_db: AsyncSession):
+    from app.modules.tenant.service import list_site_users
+
+    seed = await make_base_seed(test_db)
+    result = await list_site_users(seed.est.id, test_db, seed.ctx)
+    emails = {u.email for u in result.items}
+    assert seed.manager.email in emails
+    assert seed.operator.email in emails

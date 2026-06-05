@@ -323,3 +323,56 @@ async def test_delete_user_not_found_raises_404(test_db: AsyncSession):
     with pytest.raises(HTTPException) as exc_info:
         await delete_user(uuid.uuid4(), test_db, seed.ctx)
     assert exc_info.value.status_code == 404
+
+
+async def test_update_user_role_rebuilds_assignments(test_db: AsyncSession):
+    """Covers the 'should_rebuild' branch in update_user when role_id changes."""
+    from app.modules.personnel.schemas import UserUpdateRequest
+    from app.modules.personnel.service import update_user
+
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Teston",
+        first_name="Jean",
+        email="jean.teston@test.com",
+        password="SecurePass123!",
+        pin_code="3456",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    created = await create_user(payload, test_db, seed.ctx)
+
+    # Change role — triggers the assignment rebuild path
+    result = await update_user(
+        created.user_id,
+        UserUpdateRequest(role_id=seed.manager_role.id),
+        test_db,
+        seed.ctx,
+    )
+    assert result.role_id == seed.manager_role.id
+
+
+async def test_update_user_is_active_deactivates_without_rebuild(test_db: AsyncSession):
+    """Covers the elif payload.is_active branch in update_user."""
+    from app.modules.personnel.schemas import UserUpdateRequest
+    from app.modules.personnel.service import update_user
+
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Deactivable",
+        first_name="User",
+        email="deactivable@test.com",
+        password="SecurePass123!",
+        pin_code="7777",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    created = await create_user(payload, test_db, seed.ctx)
+
+    result = await update_user(
+        created.user_id,
+        UserUpdateRequest(is_active=False),
+        test_db,
+        seed.ctx,
+    )
+    assert result.is_active is False
