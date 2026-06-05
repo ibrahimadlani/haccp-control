@@ -198,9 +198,7 @@ class ReceptionItemCreate(BaseModel):
             ValueError: If ``is_compliant`` is inconsistent with observed defects.
         """
         if not self.packaging_ok and self.is_compliant:
-            raise ValueError(
-                "is_compliant doit être False : l'emballage est non conforme."
-            )
+            raise ValueError("is_compliant doit être False : l'emballage est non conforme.")
         if (
             self.measured_temperature is not None
             and self.product_min_temp is not None

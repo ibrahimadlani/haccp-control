@@ -223,22 +223,27 @@ async def test_corrective_action_already_exists_raises_409(test_db: AsyncSession
     mock_s3.upload_image = AsyncMock(return_value=None)
     mock_s3.object_url = MagicMock(return_value="http://s3.local/photo.jpg")
 
-    await create_corrective_action(nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Première action")
+    await create_corrective_action(
+        nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Première action"
+    )
 
     # NC is now RESOLVED; trying to add another must fail
     with pytest.raises(HTTPException) as exc_info:
-        await create_corrective_action(nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Deuxième action")
+        await create_corrective_action(
+            nc.id, test_db, seed.ctx, seed.operator, mock_s3, "Deuxième action"
+        )
     assert exc_info.value.status_code == 409
 
 
 async def test_list_nonconformities_filter_by_workflow_type_reception(test_db: AsyncSession):
     """type_filter=RECEPTION must return only reception NCs, not temperature ones."""
+    from datetime import date, datetime, timezone
+    from unittest.mock import AsyncMock, MagicMock
+
     from app.modules.nonconformities.models import WorkflowType
     from app.modules.receptions.schemas import ReceptionItemCreate, ReceptionSessionCreate
     from app.modules.receptions.service import add_item, open_session
-    from tests.integration.conftest import make_supplier, make_product
-    from unittest.mock import AsyncMock, MagicMock
-    from datetime import datetime, timezone, date
+    from tests.integration.conftest import make_product, make_supplier
 
     seed = await make_base_seed(test_db)
     equip = await make_equipment(test_db, seed.est)
@@ -252,12 +257,22 @@ async def test_list_nonconformities_filter_by_workflow_type_reception(test_db: A
     s3 = MagicMock()
     s3.upload_image = AsyncMock(return_value="bl/x.jpg")
     s3.object_url = MagicMock(return_value="http://s3.local/bl/x.jpg")
-    session_payload = ReceptionSessionCreate(supplier_id=supplier.id, received_at=datetime.now(timezone.utc))
+    session_payload = ReceptionSessionCreate(
+        supplier_id=supplier.id,
+        received_at=datetime.now(timezone.utc),
+    )
     session = await open_session(session_payload, test_db, seed.ctx, seed.operator, None, s3)
     await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-NC", dluo=date(2026, 12, 31), is_compliant=False),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="LOT-NC",
+            dluo=date(2026, 12, 31),
+            is_compliant=False,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     response = await list_nonconformities(test_db, seed.ctx, type_filter=WorkflowType.RECEPTION)
@@ -270,6 +285,7 @@ async def test_list_nonconformities_filter_by_workflow_type_reception(test_db: A
 async def test_list_nonconformities_type_filter_temperature(test_db: AsyncSession):
     """type_filter=TEMPERATURE returns only temperature NCs."""
     from app.modules.nonconformities.models import WorkflowType
+
     seed = await make_base_seed(test_db)
     equip = await make_equipment(test_db, seed.est)
     await _open_nc(test_db, seed, equip)
@@ -286,7 +302,7 @@ async def test_get_nonconformity_stats_counts_all_statuses(test_db: AsyncSession
     equip = await make_equipment(test_db, seed.est)
 
     # 2 OPEN
-    nc1 = await _open_nc(test_db, seed, equip)
+    await _open_nc(test_db, seed, equip)
     await _open_nc(test_db, seed, equip)
 
     # 1 IN_PROGRESS
@@ -310,16 +326,18 @@ async def test_get_nonconformity_stats_counts_all_statuses(test_db: AsyncSession
 
 
 async def test_acknowledge_nonconformity_not_found_raises_404(test_db: AsyncSession):
-    import uuid
+    from uuid import uuid4
+
     seed = await make_base_seed(test_db)
     with pytest.raises(HTTPException) as exc_info:
-        await acknowledge_nonconformity(uuid.uuid4(), test_db, seed.ctx, seed.operator)
+        await acknowledge_nonconformity(uuid4(), test_db, seed.ctx, seed.operator)
     assert exc_info.value.status_code == 404
 
 
 async def test_close_nonconformity_not_found_raises_404(test_db: AsyncSession):
-    import uuid
+    from uuid import uuid4
+
     seed = await make_base_seed(test_db)
     with pytest.raises(HTTPException) as exc_info:
-        await close_nonconformity(uuid.uuid4(), CloseNonConformityRequest(), test_db, seed.ctx)
+        await close_nonconformity(uuid4(), CloseNonConformityRequest(), test_db, seed.ctx)
     assert exc_info.value.status_code == 404

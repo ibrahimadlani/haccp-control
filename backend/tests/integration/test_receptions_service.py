@@ -135,15 +135,28 @@ async def test_add_item_compliant_no_nc(test_db: AsyncSession):
 
     item = await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-001", dluo=date(2026, 12, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="LOT-001",
+            dluo=date(2026, 12, 31),
+            is_compliant=True,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     assert item.is_compliant is True
     assert item.packaging_ok is True
-    ncs = (await test_db.execute(
-        select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
-    )).scalars().all()
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 0
 
 
@@ -155,22 +168,37 @@ async def test_add_item_non_compliant_creates_nc(test_db: AsyncSession):
 
     item = await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-002", dluo=date(2026, 12, 31), is_compliant=False),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="LOT-002",
+            dluo=date(2026, 12, 31),
+            is_compliant=False,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     assert item.is_compliant is False
-    ncs = (await test_db.execute(
-        select(NonConformity).where(
-            NonConformity.establishment_id == seed.est.id,
-            NonConformity.workflow_type == WorkflowType.RECEPTION,
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(
+                    NonConformity.establishment_id == seed.est.id,
+                    NonConformity.workflow_type == WorkflowType.RECEPTION,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 1
     assert ncs[0].status == NonConformityStatus.OPEN
 
 
-async def test_add_item_packaging_ok_false_forces_non_compliant_and_creates_nc(test_db: AsyncSession):
+async def test_add_item_packaging_ok_false_forces_non_compliant_and_creates_nc(
+    test_db: AsyncSession,
+):
     """packaging_ok=False must override is_compliant=True server-side."""
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
@@ -180,32 +208,44 @@ async def test_add_item_packaging_ok_false_forces_non_compliant_and_creates_nc(t
     item = await add_item(
         session.id,
         ReceptionItemCreate(
-            product_id=product.id, lot_number="LOT-PKG", dluo=date(2026, 12, 31),
-            packaging_ok=False, is_compliant=False,  # client already says false
+            product_id=product.id,
+            lot_number="LOT-PKG",
+            dluo=date(2026, 12, 31),
+            packaging_ok=False,
+            is_compliant=False,
         ),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     assert item.packaging_ok is False
     assert item.is_compliant is False
-    ncs = (await test_db.execute(
-        select(NonConformity).where(
-            NonConformity.establishment_id == seed.est.id,
-            NonConformity.workflow_type == WorkflowType.RECEPTION,
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(
+                    NonConformity.establishment_id == seed.est.id,
+                    NonConformity.workflow_type == WorkflowType.RECEPTION,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 1
 
 
-async def test_add_item_packaging_ok_false_overrides_client_compliant_true(test_db: AsyncSession):
+async def test_add_item_packaging_ok_false_overrides_client_compliant_true(
+    test_db: AsyncSession,
+):
     """Server must enforce: packaging_ok=False → is_compliant=False regardless of client."""
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
     product = await make_product(test_db, seed.est, supplier)
     session = await _open_session(test_db, seed, supplier=supplier)
 
-    # The client schema validator would normally catch this, but we test service independently.
-    # We bypass validation by constructing the schema object directly with model_construct.
+    # Bypass schema validation to test service-layer enforcement independently.
     item_payload = ReceptionItemCreate.model_construct(
         product_id=product.id,
         lot_number="LOT-BYPASS",
@@ -225,7 +265,9 @@ async def test_add_item_temperature_out_of_range_forced_non_compliant(test_db: A
     """Server re-validates temperature even if client sends is_compliant=True."""
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
-    product = await _make_temp_controlled_product(test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0)
+    product = await _make_temp_controlled_product(
+        test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0
+    )
     session = await _open_session(test_db, seed, supplier=supplier)
 
     # Temperature 8°C is above max 4°C; client lies and says compliant.
@@ -247,7 +289,9 @@ async def test_add_item_temperature_at_min_boundary_is_compliant(test_db: AsyncS
     """Temperature exactly at min threshold must be compliant (inclusive boundary)."""
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
-    product = await _make_temp_controlled_product(test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0)
+    product = await _make_temp_controlled_product(
+        test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0
+    )
     session = await _open_session(test_db, seed, supplier=supplier)
 
     item_payload = ReceptionItemCreate.model_construct(
@@ -268,7 +312,9 @@ async def test_add_item_temperature_at_max_boundary_is_compliant(test_db: AsyncS
     """Temperature exactly at max threshold must be compliant (inclusive boundary)."""
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
-    product = await _make_temp_controlled_product(test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0)
+    product = await _make_temp_controlled_product(
+        test_db, seed.est, supplier, min_temp=0.0, max_temp=4.0
+    )
     session = await _open_session(test_db, seed, supplier=supplier)
 
     item_payload = ReceptionItemCreate.model_construct(
@@ -293,9 +339,14 @@ async def test_add_item_product_not_found_raises_404(test_db: AsyncSession):
         await add_item(
             session.id,
             ReceptionItemCreate(
-                product_id=uuid.uuid4(), lot_number="LOT-X", dluo=date(2026, 12, 31), is_compliant=True,
+                product_id=uuid.uuid4(),
+                lot_number="LOT-X",
+                dluo=date(2026, 12, 31),
+                is_compliant=True,
             ),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 404
 
@@ -312,9 +363,14 @@ async def test_add_item_inactive_product_raises_404(test_db: AsyncSession):
         await add_item(
             session.id,
             ReceptionItemCreate(
-                product_id=product.id, lot_number="LOT-DEAD", dluo=date(2026, 12, 31), is_compliant=True,
+                product_id=product.id,
+                lot_number="LOT-DEAD",
+                dluo=date(2026, 12, 31),
+                is_compliant=True,
             ),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 404
 
@@ -329,17 +385,30 @@ async def test_add_item_to_closed_session_raises_409(test_db: AsyncSession):
     with pytest.raises(HTTPException) as exc_info:
         await add_item(
             session.id,
-            ReceptionItemCreate(product_id=product.id, lot_number="LOT-003", dluo=date(2026, 12, 31), is_compliant=True),
-            test_db, seed.ctx, seed.operator,
+            ReceptionItemCreate(
+                product_id=product.id,
+                lot_number="LOT-003",
+                dluo=date(2026, 12, 31),
+                is_compliant=True,
+            ),
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 409
 
 
 async def test_add_item_wrong_establishment_product_raises_404(test_db: AsyncSession):
     """A product belonging to a different establishment must not be scannable."""
-    from tests.integration.conftest import make_organisation, make_establishment, make_role, make_user, make_establishment_ctx
+    from tests.integration.conftest import (
+        make_establishment,
+        make_establishment_ctx,
+        make_organisation,
+        make_role,
+        make_user,
+    )
+
     seed = await make_base_seed(test_db)
-    # Create a second unrelated establishment
     other_org = await make_organisation(test_db)
     other_est = await make_establishment(test_db, other_org)
     other_role = await make_role(test_db)
@@ -353,9 +422,14 @@ async def test_add_item_wrong_establishment_product_raises_404(test_db: AsyncSes
         await add_item(
             session.id,
             ReceptionItemCreate(
-                product_id=other_product.id, lot_number="LOT-OTHER", dluo=date(2026, 12, 31), is_compliant=True,
+                product_id=other_product.id,
+                lot_number="LOT-OTHER",
+                dluo=date(2026, 12, 31),
+                is_compliant=True,
             ),
-            test_db, seed.ctx, seed.operator,
+            test_db,
+            seed.ctx,
+            seed.operator,
         )
     assert exc_info.value.status_code == 404
 
@@ -382,7 +456,14 @@ async def test_close_session_already_closed_raises_409(test_db: AsyncSession):
 
 
 async def test_close_session_wrong_establishment_raises_404(test_db: AsyncSession):
-    from tests.integration.conftest import make_organisation, make_establishment, make_role, make_user, make_establishment_ctx
+    from tests.integration.conftest import (
+        make_establishment,
+        make_establishment_ctx,
+        make_organisation,
+        make_role,
+        make_user,
+    )
+
     seed = await make_base_seed(test_db)
     other_org = await make_organisation(test_db)
     other_est = await make_establishment(test_db, other_org)
@@ -415,13 +496,27 @@ async def test_get_session_includes_scanned_items(test_db: AsyncSession):
 
     await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-A", dluo=date(2026, 12, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="LOT-A",
+            dluo=date(2026, 12, 31),
+            is_compliant=True,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
     await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-B", dluo=date(2026, 6, 30), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="LOT-B",
+            dluo=date(2026, 6, 30),
+            is_compliant=True,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     detail = await get_session(session.id, test_db, seed.ctx, _mock_s3())
@@ -435,7 +530,10 @@ async def test_get_session_bl_photo_url_built_from_key(test_db: AsyncSession):
     supplier = await make_supplier(test_db, seed.est)
     s3 = _mock_s3(upload_key="bl-photos/abc.jpg", base_url="https://cdn.example.com")
     mock_file = MagicMock()
-    payload = ReceptionSessionCreate(supplier_id=supplier.id, received_at=datetime.now(timezone.utc))
+    payload = ReceptionSessionCreate(
+        supplier_id=supplier.id,
+        received_at=datetime.now(timezone.utc),
+    )
     session = await open_session(payload, test_db, seed.ctx, seed.operator, mock_file, s3)
 
     detail = await get_session(session.id, test_db, seed.ctx, s3)
@@ -451,7 +549,9 @@ async def test_search_reception_items_by_lot_empty_query_returns_empty(test_db: 
     assert result == []
 
 
-async def test_search_reception_items_by_lot_whitespace_only_returns_empty(test_db: AsyncSession):
+async def test_search_reception_items_by_lot_whitespace_only_returns_empty(
+    test_db: AsyncSession,
+):
     seed = await make_base_seed(test_db)
     result = await search_reception_items_by_lot("   ", test_db, seed.ctx)
     assert result == []
@@ -471,8 +571,15 @@ async def test_search_reception_items_by_lot_exact_match(test_db: AsyncSession):
 
     await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="FRAISE-2025-01", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="FRAISE-2025-01",
+            dluo=date(2026, 1, 31),
+            is_compliant=True,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     results = await search_reception_items_by_lot("FRAISE-2025-01", test_db, seed.ctx)
@@ -487,26 +594,23 @@ async def test_search_reception_items_by_lot_partial_match(test_db: AsyncSession
     product = await make_product(test_db, seed.est, supplier)
     session = await _open_session(test_db, seed, supplier=supplier)
 
-    await add_item(
-        session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-ABC-001", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
-    )
-    await add_item(
-        session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="LOT-ABC-002", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
-    )
-    await add_item(
-        session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="UNRELATED-XYZ", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
-    )
+    for lot in ("LOT-ABC-001", "LOT-ABC-002", "UNRELATED-XYZ"):
+        await add_item(
+            session.id,
+            ReceptionItemCreate(
+                product_id=product.id,
+                lot_number=lot,
+                dluo=date(2026, 1, 31),
+                is_compliant=True,
+            ),
+            test_db,
+            seed.ctx,
+            seed.operator,
+        )
 
     results = await search_reception_items_by_lot("LOT-ABC", test_db, seed.ctx)
     assert len(results) == 2
-    lot_numbers = {r.lot_number for r in results}
-    assert "UNRELATED-XYZ" not in lot_numbers
+    assert "UNRELATED-XYZ" not in {r.lot_number for r in results}
 
 
 async def test_search_reception_items_by_lot_case_insensitive(test_db: AsyncSession):
@@ -517,17 +621,31 @@ async def test_search_reception_items_by_lot_case_insensitive(test_db: AsyncSess
 
     await add_item(
         session.id,
-        ReceptionItemCreate(product_id=product.id, lot_number="UPPER-LOT-999", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, seed.ctx, seed.operator,
+        ReceptionItemCreate(
+            product_id=product.id,
+            lot_number="UPPER-LOT-999",
+            dluo=date(2026, 1, 31),
+            is_compliant=True,
+        ),
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
-    results_lower = await search_reception_items_by_lot("upper-lot", test_db, seed.ctx)
-    assert len(results_lower) == 1
+    results = await search_reception_items_by_lot("upper-lot", test_db, seed.ctx)
+    assert len(results) == 1
 
 
 async def test_search_reception_items_by_lot_scoped_to_establishment(test_db: AsyncSession):
     """Items from another establishment must not appear in search results."""
-    from tests.integration.conftest import make_organisation, make_establishment, make_role, make_user, make_establishment_ctx
+    from tests.integration.conftest import (
+        make_establishment,
+        make_establishment_ctx,
+        make_organisation,
+        make_role,
+        make_user,
+    )
+
     seed = await make_base_seed(test_db)
     other_org = await make_organisation(test_db)
     other_est = await make_establishment(test_db, other_org)
@@ -537,20 +655,30 @@ async def test_search_reception_items_by_lot_scoped_to_establishment(test_db: As
     other_supplier = await make_supplier(test_db, other_est)
     other_product = await make_product(test_db, other_est, other_supplier)
 
-    other_session_payload = ReceptionSessionCreate(
-        supplier_id=other_supplier.id,
-        received_at=datetime.now(timezone.utc),
-    )
     other_session = await open_session(
-        other_session_payload, test_db, other_ctx, other_user, None, _mock_s3()
+        ReceptionSessionCreate(
+            supplier_id=other_supplier.id,
+            received_at=datetime.now(timezone.utc),
+        ),
+        test_db,
+        other_ctx,
+        other_user,
+        None,
+        _mock_s3(),
     )
     await add_item(
         other_session.id,
-        ReceptionItemCreate(product_id=other_product.id, lot_number="SHARED-LOT-001", dluo=date(2026, 1, 31), is_compliant=True),
-        test_db, other_ctx, other_user,
+        ReceptionItemCreate(
+            product_id=other_product.id,
+            lot_number="SHARED-LOT-001",
+            dluo=date(2026, 1, 31),
+            is_compliant=True,
+        ),
+        test_db,
+        other_ctx,
+        other_user,
     )
 
-    # seed establishment must not see the other establishment's items
     results = await search_reception_items_by_lot("SHARED-LOT", test_db, seed.ctx)
     assert len(results) == 0
 
@@ -565,10 +693,15 @@ async def test_search_reception_items_includes_packaging_flag(test_db: AsyncSess
     await add_item(
         session.id,
         ReceptionItemCreate(
-            product_id=product.id, lot_number="DAMAGED-PKG-001", dluo=date(2026, 1, 31),
-            packaging_ok=False, is_compliant=False,
+            product_id=product.id,
+            lot_number="DAMAGED-PKG-001",
+            dluo=date(2026, 1, 31),
+            packaging_ok=False,
+            is_compliant=False,
         ),
-        test_db, seed.ctx, seed.operator,
+        test_db,
+        seed.ctx,
+        seed.operator,
     )
 
     results = await search_reception_items_by_lot("DAMAGED-PKG", test_db, seed.ctx)

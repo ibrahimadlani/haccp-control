@@ -121,12 +121,14 @@ def test_establishment_settings_model_dump_round_trip():
 
 def test_reception_session_create_truck_condition_ok_defaults_to_true():
     from datetime import datetime, timezone
+
     req = ReceptionSessionCreate(supplier_id=uuid4(), received_at=datetime.now(timezone.utc))
     assert req.truck_condition_ok is True
 
 
 def test_reception_session_create_truck_condition_ok_false_accepted():
     from datetime import datetime, timezone
+
     req = ReceptionSessionCreate(
         supplier_id=uuid4(), received_at=datetime.now(timezone.utc), truck_condition_ok=False
     )
@@ -176,54 +178,64 @@ def test_reception_item_create_temperature_out_of_range_is_compliant_true_raises
 
 
 def test_reception_item_create_temperature_in_range_is_compliant_true_valid():
-    item = ReceptionItemCreate(**_base_item(
-        measured_temperature=2.5,
-        product_min_temp=0.0,
-        product_max_temp=4.0,
-        is_compliant=True,
-    ))
+    item = ReceptionItemCreate(
+        **_base_item(
+            measured_temperature=2.5,
+            product_min_temp=0.0,
+            product_max_temp=4.0,
+            is_compliant=True,
+        )
+    )
     assert item.is_compliant is True
 
 
 def test_reception_item_create_temperature_out_of_range_is_compliant_false_valid():
     """Out-of-range temperature with is_compliant=False is a legitimate non-conformity."""
-    item = ReceptionItemCreate(**_base_item(
-        measured_temperature=8.0,
-        product_min_temp=0.0,
-        product_max_temp=4.0,
-        is_compliant=False,
-    ))
+    item = ReceptionItemCreate(
+        **_base_item(
+            measured_temperature=8.0,
+            product_min_temp=0.0,
+            product_max_temp=4.0,
+            is_compliant=False,
+        )
+    )
     assert item.is_compliant is False
 
 
 def test_reception_item_create_no_temperature_thresholds_skips_temp_check():
     """When product_min/max_temp are None, temperature is not validated."""
-    item = ReceptionItemCreate(**_base_item(
-        measured_temperature=8.0,
-        product_min_temp=None,
-        product_max_temp=None,
-        is_compliant=True,
-    ))
+    item = ReceptionItemCreate(
+        **_base_item(
+            measured_temperature=8.0,
+            product_min_temp=None,
+            product_max_temp=None,
+            is_compliant=True,
+        )
+    )
     assert item.is_compliant is True
 
 
 def test_reception_item_create_temperature_at_min_boundary_is_compliant():
-    item = ReceptionItemCreate(**_base_item(
-        measured_temperature=0.0,
-        product_min_temp=0.0,
-        product_max_temp=4.0,
-        is_compliant=True,
-    ))
+    item = ReceptionItemCreate(
+        **_base_item(
+            measured_temperature=0.0,
+            product_min_temp=0.0,
+            product_max_temp=4.0,
+            is_compliant=True,
+        )
+    )
     assert item.is_compliant is True
 
 
 def test_reception_item_create_temperature_at_max_boundary_is_compliant():
-    item = ReceptionItemCreate(**_base_item(
-        measured_temperature=4.0,
-        product_min_temp=0.0,
-        product_max_temp=4.0,
-        is_compliant=True,
-    ))
+    item = ReceptionItemCreate(
+        **_base_item(
+            measured_temperature=4.0,
+            product_min_temp=0.0,
+            product_max_temp=4.0,
+            is_compliant=True,
+        )
+    )
     assert item.is_compliant is True
 
 
