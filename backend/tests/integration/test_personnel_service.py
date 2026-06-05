@@ -331,25 +331,30 @@ async def test_update_user_role_rebuilds_assignments(test_db: AsyncSession):
     from app.modules.personnel.service import update_user
 
     seed = await make_base_seed(test_db)
+    # Capture UUID before any commit to avoid SQLAlchemy post-commit expiry
+    manager_role_id = seed.manager_role.id
+    operator_role_id = seed.operator_role.id
+    est_id = seed.est.id
+
     payload = UserCreateRequest(
         last_name="Teston",
         first_name="Jean",
         email="jean.teston@test.com",
         password="SecurePass123!",
         pin_code="3456",
-        role_id=seed.operator_role.id,
-        establishment_ids=[seed.est.id],
+        role_id=operator_role_id,
+        establishment_ids=[est_id],
     )
     created = await create_user(payload, test_db, seed.ctx)
 
     # Change role — triggers the assignment rebuild path
     result = await update_user(
         created.user_id,
-        UserUpdateRequest(role_id=seed.manager_role.id),
+        UserUpdateRequest(role_id=manager_role_id),
         test_db,
         seed.ctx,
     )
-    assert result.role_id == seed.manager_role.id
+    assert result.role_id == manager_role_id
 
 
 async def test_update_user_is_active_deactivates_without_rebuild(test_db: AsyncSession):
