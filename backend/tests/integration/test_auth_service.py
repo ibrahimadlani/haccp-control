@@ -1,11 +1,19 @@
 """Integration tests for app/modules/auth/service.py."""
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.schemas import ManagerLoginRequest, OrganisationLoginRequest
-from app.modules.auth.service import login_manager, login_organization
+from app.modules.auth.service import (
+    list_operators_for_current_establishment,
+    login_manager,
+    login_organization,
+    read_current_operator,
+    read_establishment_public_metadata,
+)
 from tests.integration.conftest import (
     make_base_seed,
     make_establishment,
@@ -126,3 +134,67 @@ async def test_login_organization_unknown_email_raises_401(test_db: AsyncSession
     with pytest.raises(HTTPException) as exc_info:
         await login_organization(payload, test_db)
     assert exc_info.value.status_code == 401
+
+
+# ── Establishment public metadata ─────────────────────────────────────────────
+
+
+async def test_read_establishment_public_metadata_returns_site_info(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await read_establishment_public_metadata(str(seed.est.id), test_db)
+    assert result.etablissement_id == seed.est.id
+    assert result.nom_site == seed.est.nom_site
+    assert result.timezone == seed.est.timezone
+
+
+async def test_read_establishment_public_metadata_not_found_raises_404(test_db: AsyncSession):
+    with pytest.raises(HTTPException) as exc_info:
+        await read_establishment_public_metadata(str(uuid.uuid4()), test_db)
+    assert exc_info.value.status_code == 404
+
+
+async def test_login_manager_establishment_not_found_raises_404(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    payload = ManagerLoginRequest(
+        email=seed.manager.email,
+        password="UserPassword123",
+        etablissement_id=uuid.uuid4(),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await login_manager(payload, test_db)
+    assert exc_info.value.status_code == 404
+
+
+# ── read_current_operator ─────────────────────────────────────────────────────
+
+
+async def test_read_current_operator_returns_operator_payload(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await read_current_operator(seed.ctx, seed.operator, test_db)
+
+    assert result["operator"]["id"] == str(seed.operator.id)
+    assert result["operator"]["nom"] == seed.operator.nom
+    assert result["establishment"]["id"] == str(seed.est.id)
+
+
+async def test_read_current_operator_manager_is_admin(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await read_current_operator(seed.ctx, seed.manager, test_db)
+    assert result["operator"]["is_admin"] is True
+
+
+# ── list_operators_for_current_establishment ──────────────────────────────────
+
+
+async def test_list_operators_for_establishment_returns_assigned_users(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await list_operators_for_current_establishment(seed.ctx, test_db)
+    user_ids = {str(op.id) for op in result}
+    assert str(seed.operator.id) in user_ids
+
+
+async def test_list_operators_sorted_alphabetically(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await list_operators_for_current_establishment(seed.ctx, test_db)
+    noms = [op.nom for op in result]
+    assert noms == sorted(noms, key=str.lower)

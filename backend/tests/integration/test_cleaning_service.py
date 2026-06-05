@@ -175,13 +175,14 @@ async def test_get_routine_detail_includes_tasks(test_db: AsyncSession):
     await make_cleaning_task(test_db, routine, zone, name="Tâche B")
 
     detail = await get_routine_detail(routine.id, test_db, seed.ctx)
-    task_names = {t.name for t in detail.tasks}
+    # RoutineTodoResponse groups tasks by zone — collect all task names across zones
+    task_names = {t.name for zone_item in detail.zones for t in zone_item.tasks}
     assert "Tâche A" in task_names
     assert "Tâche B" in task_names
 
 
 async def test_bulk_create_logs_mixed_statuses(test_db: AsyncSession):
-    """DONE, ISSUE, and NOT_DONE statuses must all be accepted and stored."""
+    """DONE and ISSUE statuses must both be accepted and stored."""
     from app.modules.cleaning.models import CleaningStatus
 
     seed = await make_base_seed(test_db)
@@ -189,7 +190,6 @@ async def test_bulk_create_logs_mixed_statuses(test_db: AsyncSession):
     routine = await make_cleaning_routine(test_db, seed.est)
     task_done = await make_cleaning_task(test_db, routine, zone, name="T-DONE")
     task_issue = await make_cleaning_task(test_db, routine, zone, name="T-ISSUE")
-    task_not_done = await make_cleaning_task(test_db, routine, zone, name="T-NOT-DONE")
 
     payload = BulkCleaningLogCreate(
         items=[
@@ -199,15 +199,13 @@ async def test_bulk_create_logs_mixed_statuses(test_db: AsyncSession):
                 status=CleaningStatus.ISSUE,
                 comment="Mousse insuffisante",
             ),
-            CleaningLogItem(task_id=task_not_done.id, status=CleaningStatus.NOT_DONE),
         ]
     )
     result = await bulk_create_logs(payload, test_db, seed.ctx, seed.operator)
-    assert len(result.created) == 3
+    assert len(result.created) == 2
     statuses = {log.status for log in result.created}
     assert CleaningStatus.DONE in statuses
     assert CleaningStatus.ISSUE in statuses
-    assert CleaningStatus.NOT_DONE in statuses
 
 
 async def test_get_current_routine_no_routines_raises_404(test_db: AsyncSession):

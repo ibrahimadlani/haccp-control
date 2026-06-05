@@ -1,5 +1,7 @@
 """Integration tests for app/modules/personnel/service.py."""
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -10,14 +12,18 @@ from app.modules.personnel.models import Operator
 from app.modules.personnel.schemas import (
     OperatorCreate,
     PinResetRequest,
+    UserCreateRequest,
 )
 from app.modules.personnel.service import (
     create_operator,
+    create_user,
     ensure_admin_org_access,
     get_operators,
     list_roles,
+    list_users,
     reset_pin,
     soft_delete_operator,
+    update_operator,
 )
 from tests.integration.conftest import (
     make_base_seed,
@@ -110,3 +116,114 @@ async def test_ensure_admin_org_access_non_manager_raises_403(test_db: AsyncSess
     with pytest.raises(HTTPException) as exc_info:
         await ensure_admin_org_access(test_db, non_manager_ctx)
     assert exc_info.value.status_code == 403
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+
+async def test_list_users_returns_assigned_collaborators(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    result = await list_users(test_db, seed.ctx)
+    emails = {u.email for u in result}
+    assert seed.manager.email in emails
+    assert seed.operator.email in emails
+
+
+async def test_list_users_non_manager_raises_403(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    non_manager_ctx = make_establishment_ctx(seed.org, seed.est, seed.operator, is_org_admin=False)
+    with pytest.raises(HTTPException) as exc_info:
+        await list_users(test_db, non_manager_ctx)
+    assert exc_info.value.status_code == 403
+
+
+async def test_create_user_creates_and_assigns(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Moreau",
+        first_name="Claire",
+        email="claire.moreau@test.com",
+        password="SecurePass123!",
+        pin_code="7890",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    result = await create_user(payload, test_db, seed.ctx)
+    assert result.user_id is not None
+    assert str(result.email) == "claire.moreau@test.com"
+    assert seed.est.id in result.establishment_ids
+
+
+async def test_create_user_duplicate_email_raises_400(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Dupont",
+        first_name="Jean",
+        email=seed.manager.email,  # already exists
+        password="SecurePass123!",
+        pin_code="1111",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await create_user(payload, test_db, seed.ctx)
+    assert exc_info.value.status_code == 400
+
+
+async def test_create_user_unknown_role_raises_404(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Test",
+        first_name="User",
+        email="new.user@test.com",
+        password="SecurePass123!",
+        pin_code="9999",
+        role_id=uuid.uuid4(),  # non-existent role
+        establishment_ids=[seed.est.id],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await create_user(payload, test_db, seed.ctx)
+    assert exc_info.value.status_code == 404
+
+
+async def test_create_user_invalid_establishment_raises_400(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Test",
+        first_name="User",
+        email="user.invalid.est@test.com",
+        password="SecurePass123!",
+        pin_code="2222",
+        role_id=seed.operator_role.id,
+        establishment_ids=[uuid.uuid4()],  # non-existent establishment
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await create_user(payload, test_db, seed.ctx)
+    assert exc_info.value.status_code == 400
+
+
+# ── Operator update ───────────────────────────────────────────────────────────
+
+
+async def test_update_operator_name(test_db: AsyncSession):
+    from app.modules.personnel.schemas import OperatorUpdateRequest
+
+    seed = await make_base_seed(test_db)
+    payload = OperatorCreate(first_name="Ancien", last_name="Nom", pin_code="1234")
+    op = await create_operator(payload, test_db, seed.ctx)
+
+    result = await update_operator(
+        op.id, OperatorUpdateRequest(first_name="Nouveau"), test_db, seed.ctx
+    )
+    assert result.first_name == "Nouveau"
+
+
+async def test_update_operator_not_found_raises_404(test_db: AsyncSession):
+    from app.modules.personnel.schemas import OperatorUpdateRequest
+
+    seed = await make_base_seed(test_db)
+    with pytest.raises(HTTPException) as exc_info:
+        await update_operator(
+            uuid.uuid4(), OperatorUpdateRequest(first_name="X"), test_db, seed.ctx
+        )
+    assert exc_info.value.status_code == 404
