@@ -4,7 +4,6 @@ import { useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AllergenBoard } from "@/components/operator/AllergenBoard"
 import { CookingQuickRecord } from "@/components/operator/CookingQuickRecord"
-import { OilChangeForm } from "@/components/operator/OilChangeForm"
 import { OpenedProductLabelForm } from "@/components/operator/OpenedProductLabelForm"
 import { CoolingChrono } from "@/components/kiosk/CoolingChrono"
 import { KioskActionGrid } from "@/components/kiosk/KioskActionGrid"
@@ -22,7 +21,6 @@ export default function ServicePage() {
   const [cookingOpen, setCookingOpen] = useState(false)
   const [chronoOpen, setChronoOpen] = useState(false)
   const [labelOpen, setLabelOpen] = useState(false)
-  const [oilOpen, setOilOpen] = useState(false)
   const [allergenOpen, setAllergenOpen] = useState(false)
 
   const isActive = !timeclockEnabled || status === "active"
@@ -75,7 +73,7 @@ export default function ServicePage() {
           title="Huile des Friteuses"
           subtitle="Témoin polaire · changement"
           disabled={!isActive}
-          onClick={() => setOilOpen(true)}
+          onClick={() => router.push("/operator/service/oil")}
         />
 
         <KioskActionTile
@@ -90,7 +88,6 @@ export default function ServicePage() {
       <CookingQuickRecord open={cookingOpen} onOpenChange={setCookingOpen} />
       <CoolingChrono open={chronoOpen} onOpenChange={setChronoOpen} />
       <OpenedProductLabelForm open={labelOpen} onOpenChange={setLabelOpen} />
-      <OilChangeForm open={oilOpen} onOpenChange={setOilOpen} />
       <AllergenBoard open={allergenOpen} onOpenChange={setAllergenOpen} />
     </KioskPhaseShell>
   )

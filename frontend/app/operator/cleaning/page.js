@@ -1,24 +1,18 @@
 "use client"
 
-import { useEffect, useReducer, useState } from "react"
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  SprayCan,
-} from "lucide-react"
+import { useEffect, useMemo, useReducer, useState } from "react"
+import { AlertTriangle, CheckCircle2, Loader2, SprayCan } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { OperatorBackLink } from "@/components/operator/OperatorBackLink"
+import { KioskBackButton } from "@/components/kiosk/KioskBackButton"
+import { KioskProgressBar } from "@/components/kiosk/KioskProgressBar"
+import { KIOSK_PHASES } from "@/lib/kiosk/phases"
 import { fetchCurrentRoutine, submitBulkCleaning } from "@/lib/api/cleaning"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
+import { cn } from "@/lib/utils"
 
 const SCHEDULE_LABELS = {
   OPENING: "Ouverture",
@@ -27,40 +21,113 @@ const SCHEDULE_LABELS = {
   MONTHLY: "Mensuel",
 }
 
-// ── Per-task state ────────────────────────────────────────────────────────────
-// taskStates: { [task_id]: { status: "DONE"|"ISSUE"|null, comment: "" } }
-
 function taskReducer(state, action) {
   switch (action.type) {
     case "SET_STATUS":
       return {
         ...state,
-        [action.taskId]: { ...state[action.taskId], status: action.status, comment: state[action.taskId]?.comment ?? "" },
+        [action.taskId]: {
+          ...state[action.taskId],
+          status: action.status,
+          comment: state[action.taskId]?.comment ?? "",
+        },
       }
     case "SET_COMMENT":
       return {
         ...state,
         [action.taskId]: { ...state[action.taskId], comment: action.comment },
       }
-    case "RESET_ZONE":
-      return Object.fromEntries(
-        Object.entries(state).filter(([id]) => !action.taskIds.includes(id))
-      )
     default:
       return state
   }
 }
 
-// ── ZoneCard ──────────────────────────────────────────────────────────────────
+function KioskTaskRow({ task, taskState, dispatch, submitting }) {
+  const ts = taskState ?? {}
+  const isIssue = ts.status === "ISSUE"
+  const isDone = ts.status === "DONE"
 
-function ZoneCard({ zone, onZoneSubmitted }) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border-2 p-4 transition-colors",
+        isDone && "border-emerald-400 bg-emerald-50/60",
+        isIssue && "border-red-400 bg-red-50/60",
+        !isDone && !isIssue && "border-slate-200 bg-white",
+      )}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[1.35rem] font-extrabold text-slate-900">{task.name}</p>
+          {task.description && (
+            <p className="mt-1 text-[1.05rem] text-slate-600">{task.description}</p>
+          )}
+          {task.log && (
+            <p className="mt-2 text-[1rem] font-medium text-emerald-700">✓ Déjà validé aujourd&apos;hui</p>
+          )}
+        </div>
+        <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[0.95rem] font-semibold text-slate-600">
+          Quotidien
+        </span>
+      </div>
+
+      {!task.log && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "DONE" })}
+              className={cn(
+                "flex min-h-[4rem] items-center justify-center gap-2 rounded-xl border-2 text-[1.2rem] font-bold transition-all active:scale-[0.98]",
+                isDone
+                  ? "border-emerald-600 bg-emerald-600 text-white"
+                  : "border-emerald-300 bg-white text-emerald-800",
+              )}
+            >
+              <CheckCircle2 className="h-6 w-6" />
+              FAIT
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "ISSUE" })}
+              className={cn(
+                "flex min-h-[4rem] items-center justify-center gap-2 rounded-xl border-2 text-[1.2rem] font-bold transition-all active:scale-[0.98]",
+                isIssue
+                  ? "border-red-600 bg-red-600 text-white"
+                  : "border-red-300 bg-white text-red-800",
+              )}
+            >
+              <AlertTriangle className="h-6 w-6" />
+              ANOMALIE
+            </button>
+          </div>
+
+          {isIssue && (
+            <Textarea
+              placeholder="Décrivez l'anomalie (obligatoire)…"
+              value={ts.comment ?? ""}
+              onChange={(e) =>
+                dispatch({ type: "SET_COMMENT", taskId: task.task_id, comment: e.target.value })
+              }
+              className="mt-3 min-h-24 text-[1.1rem]"
+              rows={3}
+              disabled={submitting}
+            />
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function KioskZoneBlock({ zone, onZoneSubmitted }) {
   const { operator } = useOperator()
-  const [open, setOpen] = useState(false)
   const [taskStates, dispatch] = useReducer(taskReducer, {})
   const [submitting, setSubmitting] = useState(false)
-  const [done, setDone] = useState(() => zone.tasks.every((t) => t.log !== null))
+  const allLogged = zone.tasks.every((t) => t.log !== null)
 
-  // Pre-fill from existing today logs
   useEffect(() => {
     zone.tasks.forEach((task) => {
       if (task.log) {
@@ -91,210 +158,138 @@ function ZoneCard({ zone, onZoneSubmitted }) {
     const items = zone.tasks.map((t) => ({ task_id: t.task_id, status: "DONE", comment: null }))
     const ok = await submitItems(items)
     if (ok) {
-      toast.success(`Zone "${zone.zone_name}" validée`)
-      setDone(true)
+      toast.success(`Zone « ${zone.zone_name} » validée`)
       onZoneSubmitted(zone.zone_id)
     }
   }
 
   async function handleSubmitZone() {
-    // Validate: ISSUE tasks must have a comment
     for (const task of zone.tasks) {
+      if (task.log) continue
       const ts = taskStates[task.task_id]
       if (!ts?.status) {
-        toast.error(`Toutes les tâches doivent être renseignées (zone : ${zone.zone_name})`)
+        toast.error(`Toutes les tâches doivent être renseignées (${zone.zone_name})`)
         return
       }
       if (ts.status === "ISSUE" && !ts.comment?.trim()) {
-        toast.error(`Un commentaire est requis pour les tâches en anomalie`)
+        toast.error("Commentaire obligatoire pour une anomalie")
         return
       }
     }
-    const items = zone.tasks.map((t) => ({
-      task_id: t.task_id,
-      status: taskStates[t.task_id].status,
-      comment: taskStates[t.task_id].comment?.trim() || null,
-    }))
+    const items = zone.tasks
+      .filter((t) => !t.log)
+      .map((t) => ({
+        task_id: t.task_id,
+        status: taskStates[t.task_id].status,
+        comment: taskStates[t.task_id].comment?.trim() || null,
+      }))
+    if (items.length === 0) return
     const ok = await submitItems(items)
     if (ok) {
-      toast.success(`Zone "${zone.zone_name}" enregistrée`)
-      setDone(true)
+      toast.success(`Zone « ${zone.zone_name} » enregistrée`)
       onZoneSubmitted(zone.zone_id)
     }
   }
 
-  const allFilled = zone.tasks.every((t) => taskStates[t.task_id]?.status)
-
-  if (done) {
-    return (
-      <Card className="border-emerald-200 bg-emerald-50/50">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-            <CardTitle className="text-base text-emerald-800">{zone.zone_name}</CardTitle>
-            <Badge variant="outline" className="ml-auto border-emerald-300 text-emerald-700 text-xs">
-              Validée
-            </Badge>
-          </div>
-        </CardHeader>
-      </Card>
-    )
-  }
+  const pendingTasks = zone.tasks.filter((t) => !t.log)
+  const allFilled = pendingTasks.every((t) => taskStates[t.task_id]?.status)
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <SprayCan className="h-5 w-5 text-primary" />
-          <CardTitle className="text-base">{zone.zone_name}</CardTitle>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {zone.tasks.length} tâche{zone.tasks.length > 1 ? "s" : ""}
+    <section className="space-y-4 rounded-2xl border-2 border-slate-200 bg-slate-50/50 p-4">
+      <div className="flex items-center gap-3">
+        <SprayCan className="h-7 w-7 text-violet-600" />
+        <h2 className="text-[1.4rem] font-extrabold text-slate-900">{zone.zone_name}</h2>
+        {allLogged && (
+          <span className="ml-auto rounded-full bg-emerald-100 px-3 py-1 text-[1rem] font-bold text-emerald-800">
+            Validée
           </span>
-        </div>
-      </CardHeader>
+        )}
+      </div>
 
-      <CardContent className="space-y-3 pt-0">
-        {/* Fast-path */}
-        <Button
-          className="h-12 w-full gap-2 text-sm font-semibold"
-          onClick={handleFastPath}
-          disabled={submitting}
-        >
-          {submitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4" />
-          )}
-          Valider toute la zone
-        </Button>
+      <div className="space-y-3">
+        {zone.tasks.map((task) => (
+          <KioskTaskRow
+            key={task.task_id}
+            task={task}
+            taskState={taskStates[task.task_id]}
+            dispatch={dispatch}
+            submitting={submitting}
+          />
+        ))}
+      </div>
 
-        {/* Accordion */}
-        <button
-          type="button"
-          className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span>Détail des tâches</span>
-          {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
-
-        {open && (
-          <div className="space-y-4 pt-1">
-            {zone.tasks.map((task) => {
-              const ts = taskStates[task.task_id] ?? {}
-              const isIssue = ts.status === "ISSUE"
-              const isDone = ts.status === "DONE"
-              const hasExistingLog = task.log !== null
-
-              return (
-                <div key={task.task_id} className="rounded-lg border p-3 space-y-2">
-                  <div>
-                    <p className="text-sm font-medium">{task.name}</p>
-                    {task.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>
-                    )}
-                    {hasExistingLog && (
-                      <Badge variant="outline" className="mt-1 text-xs">
-                        Déjà enregistré aujourd'hui
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant={isDone ? "default" : "outline"}
-                      className={`flex-1 ${isDone ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-                      onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "DONE" })}
-                      disabled={submitting}
-                    >
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Fait
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isIssue ? "destructive" : "outline"}
-                      className="flex-1"
-                      onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "ISSUE" })}
-                      disabled={submitting}
-                    >
-                      <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                      Anomalie
-                    </Button>
-                  </div>
-
-                  {isIssue && (
-                    <Textarea
-                      placeholder="Décrivez l'anomalie (obligatoire)…"
-                      value={ts.comment ?? ""}
-                      onChange={(e) =>
-                        dispatch({ type: "SET_COMMENT", taskId: task.task_id, comment: e.target.value })
-                      }
-                      className="text-sm resize-none"
-                      rows={2}
-                      disabled={submitting}
-                    />
-                  )}
-                </div>
-              )
-            })}
-
+      {!allLogged && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button
+            className="h-14 text-[1.2rem] font-bold"
+            onClick={handleFastPath}
+            disabled={submitting}
+          >
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : "✓ Tout valider"}
+          </Button>
+          {pendingTasks.length > 0 && (
             <Button
-              className="w-full"
               variant="outline"
+              className="h-14 text-[1.2rem] font-bold"
               onClick={handleSubmitZone}
               disabled={!allFilled || submitting}
             >
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Enregistrer la zone
+              Enregistrer le détail
             </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CleaningPage() {
   const [routine, setRoutine] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [submittedZones, setSubmittedZones] = useState(new Set())
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const token = loadEstablishmentToken()
     if (!token) return
+    setLoading(true)
     fetchCurrentRoutine(token)
       .then(setRoutine)
       .catch((err) => setError(String(err.message)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [refreshKey])
 
-  function handleZoneSubmitted(zoneId) {
-    setSubmittedZones((prev) => new Set([...prev, zoneId]))
+  function handleZoneSubmitted() {
+    setRefreshKey((k) => k + 1)
   }
 
-  const pendingCount = routine
-    ? routine.zones.filter((z) => !submittedZones.has(z.zone_id) && !z.tasks.every((t) => t.log)).length
-    : 0
-  const allDone = routine && pendingCount === 0
+  const { totalTasks, doneTasks } = useMemo(() => {
+    if (!routine) return { totalTasks: 0, doneTasks: 0 }
+    let total = 0
+    let done = 0
+    for (const zone of routine.zones) {
+      for (const task of zone.tasks) {
+        total += 1
+        if (task.log) done += 1
+      }
+    }
+    return { totalTasks: total, doneTasks: done }
+  }, [routine])
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="flex flex-1 items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="mx-auto max-w-lg">
+      <div className="flex flex-1 flex-col gap-4">
+        <KioskBackButton href={KIOSK_PHASES.closing.route} />
         <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="text-[1.1rem]">{error}</AlertDescription>
         </Alert>
       </div>
     )
@@ -303,33 +298,27 @@ export default function CleaningPage() {
   if (!routine) return null
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <OperatorBackLink phase="closing" />
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold">{routine.routine_name}</h1>
-          <Badge variant="secondary">{SCHEDULE_LABELS[routine.schedule_type] ?? routine.schedule_type}</Badge>
+    <div className="flex flex-1 flex-col gap-5">
+      <div className="flex items-center justify-between gap-4">
+        <KioskBackButton href={KIOSK_PHASES.closing.route} />
+        <div className="text-right">
+          <p className="text-[1.1rem] text-violet-700">🧹 Nettoyage</p>
+          <h1 className="text-[1.6rem] font-extrabold">{routine.routine_name}</h1>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {routine.zones.length} zone{routine.zones.length > 1 ? "s" : ""} ·{" "}
-          {allDone ? (
-            <span className="font-medium text-emerald-600">Toutes les zones validées ✓</span>
-          ) : (
-            <span>{pendingCount} zone{pendingCount > 1 ? "s" : ""} restante{pendingCount > 1 ? "s" : ""}</span>
-          )}
-        </p>
       </div>
+
+      <KioskProgressBar done={doneTasks} total={totalTasks} />
 
       {routine.zones.length === 0 ? (
         <Alert>
-          <AlertDescription>
-            Aucune zone configurée pour cette routine. Contactez votre manager.
+          <AlertDescription className="text-[1.1rem]">
+            Aucune zone configurée. Contactez votre gestionnaire.
           </AlertDescription>
         </Alert>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {routine.zones.map((zone) => (
-            <ZoneCard
+            <KioskZoneBlock
               key={zone.zone_id}
               zone={zone}
               onZoneSubmitted={handleZoneSubmitted}

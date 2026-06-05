@@ -21,6 +21,12 @@ export default function ManagerHubPage() {
 
       <KioskActionGrid>
         <KioskActionTile
+          emoji="🔔"
+          title="Alertes HACCP"
+          subtitle="Température, réception, documents"
+          onClick={() => router.push("/operator/manager/alerts")}
+        />
+        <KioskActionTile
           emoji="🚨"
           title="Non-Conformités"
           subtitle="Déclarer, traiter, clôturer"

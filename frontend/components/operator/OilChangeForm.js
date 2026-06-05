@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
 const FRYERS = ["Friteuse — Ligne self", "Friteuse — Cuisine centrale"]
 const MAX_POLAR_PERCENT = 25
 
-export function OilChangeForm({ open, onOpenChange }) {
+export function OilChangeForm({ open, onOpenChange, defaultFryer, onRecorded }) {
   const { operator } = useOperator()
   const token = loadEstablishmentToken()
   const credentials = operator ? { pin: operator.pin, operatorId: operator.id } : null
@@ -48,12 +48,18 @@ export function OilChangeForm({ open, onOpenChange }) {
   }, [open, token])
 
   useEffect(() => {
+    if (open && defaultFryer) {
+      setFryerName(defaultFryer)
+    }
+  }, [open, defaultFryer])
+
+  useEffect(() => {
     if (!open) {
-      setFryerName(FRYERS[0])
+      setFryerName(defaultFryer ?? FRYERS[0])
       setAction("FILTER")
       setPolarTest("")
     }
-  }, [open])
+  }, [open, defaultFryer])
 
   async function handleSubmit() {
     if (!token || !credentials) return
@@ -69,6 +75,7 @@ export function OilChangeForm({ open, onOpenChange }) {
         polar_test_percent: action === "FILTER" ? polarTest : null,
       })
       setRecords((prev) => [result, ...prev])
+      onRecorded?.(result)
       if (result.is_conforme) {
         toast.success(
           action === "OIL_CHANGE"

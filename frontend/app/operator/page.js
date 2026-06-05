@@ -1,5 +1,6 @@
 "use client"
 
+import { HubStatusRibbon } from "@/components/kiosk/HubStatusRibbon"
 import { ManagerAccessButton } from "@/components/kiosk/ManagerPinGate"
 import { KioskHubCard } from "@/components/kiosk/KioskHubCard"
 import { KIOSK_PHASES } from "@/lib/kiosk/phases"
@@ -31,6 +32,8 @@ export default function OperatorHubPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      <HubStatusRibbon />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4">
         <KioskHubCard

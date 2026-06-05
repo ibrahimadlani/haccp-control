@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 
 export function KioskActionTile({
@@ -44,9 +45,9 @@ export function KioskActionTile({
 
   if (href && !disabled) {
     return (
-      <a href={href} className={baseClass}>
+      <Link href={href} className={baseClass}>
         {content}
-      </a>
+      </Link>
     )
   }
 

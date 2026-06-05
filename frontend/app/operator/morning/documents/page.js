@@ -1,6 +1,7 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { Suspense, useRef, useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Camera, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -8,17 +9,28 @@ import { Label } from "@/components/ui/label"
 import { KioskPhaseShell } from "@/components/kiosk/KioskPhaseShell"
 import { uploadEstablishmentDocument } from "@/lib/api/documents"
 import { KIOSK_PHASES } from "@/lib/kiosk/phases"
+import { mapScanTypeToCategory, recordComplianceUpload } from "@/lib/kiosk/complianceTracker"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
 
 const DOC_TYPES = [
   { value: "BL", label: "Bon de livraison (BL)" },
   { value: "LAB_REPORT", label: "Fiche microbiologique" },
+  { value: "AUDIT", label: "Rapport audit / DDPP" },
+  { value: "DERATISATION", label: "Dératisation / nuisibles" },
 ]
 
-export default function DocumentScanPage() {
+function DocumentScanContent() {
+  const searchParams = useSearchParams()
   const { operator } = useOperator()
   const [docType, setDocType] = useState("BL")
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("type")
+    if (fromUrl && DOC_TYPES.some((d) => d.value === fromUrl)) {
+      setDocType(fromUrl)
+    }
+  }, [searchParams])
   const [file, setFile] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const fileRef = useRef(null)
@@ -33,7 +45,9 @@ export default function DocumentScanPage() {
         { pin: operator.pin, operatorId: operator.id },
         { documentType: docType, photo: file },
       )
-      toast.success(`Document enregistré${result.url ? "" : ""}`)
+      const categoryId = searchParams.get("category") ?? mapScanTypeToCategory(docType)
+      recordComplianceUpload(categoryId)
+      toast.success("Document enregistré dans le coffre-fort HACCP")
       setFile(null)
     } catch (err) {
       toast.error(String(err.message))
@@ -100,5 +114,19 @@ export default function DocumentScanPage() {
         </Button>
       </div>
     </KioskPhaseShell>
+  )
+}
+
+export default function DocumentScanPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <DocumentScanContent />
+    </Suspense>
   )
 }
