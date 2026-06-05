@@ -1,8 +1,10 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
+
+from app.core.s3 import S3Service
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentEstablishment
@@ -24,6 +26,7 @@ from app.modules.production.schemas import (
     OilChangeCreate,
     OilChangeResponse,
     OpenedProductLabelCreate,
+    EstablishmentDocumentResponse,
     OpenedProductLabelResponse,
     ProductionTemperatureCreate,
     ProductionTemperatureResponse,
@@ -205,3 +208,20 @@ async def list_today_menu(
         .order_by(DailyMenuItem.meal_service.asc(), DailyMenuItem.dish_name.asc())
     )
     return [DailyMenuItemResponse.model_validate(row) for row in result.scalars().all()]
+
+
+async def upload_establishment_document(
+    document_type: str,
+    photo: UploadFile,
+    establishment: CurrentEstablishment,
+    operator: Utilisateur,
+    s3: S3Service,
+) -> EstablishmentDocumentResponse:
+    safe_type = document_type.strip().upper().replace(" ", "_")[:64] or "DOCUMENT"
+    prefix = f"establishment-docs/{establishment.etablissement_id}/{safe_type}"
+    key = await s3.upload_image(photo, prefix=prefix)
+    _ = operator  # signature traceability — operator authenticated at router layer
+    return EstablishmentDocumentResponse(
+        document_type=safe_type,
+        url=s3.object_url(key),
+    )

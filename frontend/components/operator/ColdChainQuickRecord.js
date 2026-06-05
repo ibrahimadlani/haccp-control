@@ -20,7 +20,7 @@ import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
 import { cn } from "@/lib/utils"
 
-export function ColdChainQuickRecord({ open, onOpenChange }) {
+export function ColdChainQuickRecord({ open, onOpenChange, onEquipmentDone }) {
   const { operator } = useOperator()
   const token = loadEstablishmentToken()
   const credentials = operator ? { pin: operator.pin, operatorId: operator.id } : null
@@ -71,6 +71,7 @@ export function ColdChainQuickRecord({ open, onOpenChange }) {
       if (result.is_conforme) {
         toast.success(`${selected?.name ?? "Équipement"} — relevé conforme`)
         setDoneIds((prev) => new Set(prev).add(selectedId))
+        onEquipmentDone?.(selectedId)
         setSelectedId("")
         setTemperature("")
       } else {
@@ -97,6 +98,7 @@ export function ColdChainQuickRecord({ open, onOpenChange }) {
       await postCorrectiveAction(token, credentials, ncStep.ncId, formData)
       toast.success("Non-conformité traitée")
       setDoneIds((prev) => new Set(prev).add(selectedId))
+      onEquipmentDone?.(selectedId)
       setNcStep(null)
       setDescription("")
       setSelectedId("")

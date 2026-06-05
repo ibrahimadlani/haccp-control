@@ -1,16 +1,9 @@
 "use client"
 
-import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { KioskBackButton } from "@/components/kiosk/KioskBackButton"
+import { getPhaseConfig } from "@/lib/kiosk/phases"
 
-export function OperatorBackLink({ phase = "morning", label = "Ma journée en cuisine" }) {
-  return (
-    <Link
-      href={`/operator?phase=${phase}`}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-    >
-      <ArrowLeft className="h-4 w-4" />
-      {label}
-    </Link>
-  )
+export function OperatorBackLink({ phase = "morning" }) {
+  const config = getPhaseConfig(phase)
+  return <KioskBackButton href={config.route} label="RETOUR" />
 }

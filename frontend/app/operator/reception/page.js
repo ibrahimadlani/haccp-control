@@ -569,7 +569,7 @@ function ScanAndGo({ session }) {
     try {
       await closeReceptionSession(token, { pin: operator.pin, operatorId: operator.id }, session.id)
       toast.success("Réception clôturée")
-      router.replace("/operator?phase=morning")
+      router.replace("/operator/morning")
     } catch (err) {
       toast.error(String(err.message))
       setClosing(false)

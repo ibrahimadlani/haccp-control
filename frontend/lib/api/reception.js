@@ -85,6 +85,13 @@ export function addReceptionItem(token, { pin, operatorId }, sessionId, item) {
   })
 }
 
+export function searchReceptionByLot(token, lotNumber) {
+  const params = new URLSearchParams({ lot_number: lotNumber })
+  return apiCall(`/api/v1/reception-items/search?${params}`, {
+    headers: bearerHeaders(token),
+  })
+}
+
 export function closeReceptionSession(token, { pin, operatorId }, sessionId) {
   return apiCall(`/api/v1/reception-sessions/${sessionId}/close`, {
     method: "PATCH",

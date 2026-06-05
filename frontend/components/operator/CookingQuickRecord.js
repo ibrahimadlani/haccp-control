@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { NumericKeypad } from "@/components/operator/NumericKeypad"
-import { createProductionTemperature } from "@/lib/api/production"
+import { createProductionTemperature, getDailyMenu } from "@/lib/api/production"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
 import { cn } from "@/lib/utils"
@@ -32,8 +32,16 @@ export function CookingQuickRecord({ open, onOpenChange }) {
   const [dishName, setDishName] = useState("")
   const [controlType, setControlType] = useState("COOKING_CORE")
   const [temperature, setTemperature] = useState("")
+  const [menuDishes, setMenuDishes] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [lastResult, setLastResult] = useState(null)
+
+  useEffect(() => {
+    if (!open || !token) return
+    getDailyMenu(token)
+      .then((items) => setMenuDishes(items ?? []))
+      .catch(() => setMenuDishes([]))
+  }, [open, token])
 
   useEffect(() => {
     if (!open) {
@@ -106,14 +114,39 @@ export function CookingQuickRecord({ open, onOpenChange }) {
             </div>
           )}
 
+          {menuDishes.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-[1.1rem]">Plats du jour</Label>
+              <div className="grid max-h-36 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                {menuDishes.map((dish) => (
+                  <button
+                    key={dish.id}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => setDishName(dish.dish_name)}
+                    className={cn(
+                      "rounded-xl border-2 px-3 py-2 text-left text-[1.05rem] font-semibold",
+                      dishName === dish.dish_name
+                        ? "border-orange-500 bg-orange-50"
+                        : "border-slate-200 hover:border-orange-300",
+                    )}
+                  >
+                    {dish.dish_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
-            <Label htmlFor="dish-name">Plat préparé</Label>
+            <Label htmlFor="dish-name" className="text-[1.1rem]">Plat préparé</Label>
             <Input
               id="dish-name"
               value={dishName}
               onChange={(e) => setDishName(e.target.value)}
               placeholder="ex. Blanquette de veau"
               disabled={submitting}
+              className="h-12 text-[1.1rem]"
             />
           </div>
 

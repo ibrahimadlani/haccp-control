@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api.deps import CurrentOperator, CurrentSite, DatabaseSession, require_feature
 from app.core.features import Feature
+from app.core.s3 import S3Service, get_s3_service
 from app.modules.production import service
 from app.modules.production.schemas import (
     DailyMenuItemResponse,
+    EstablishmentDocumentResponse,
     OilChangeCreate,
     OilChangeResponse,
     OpenedProductLabelCreate,
@@ -95,3 +99,16 @@ async def list_daily_menu(
     establishment: CurrentSite,
 ) -> list[DailyMenuItemResponse]:
     return await service.list_today_menu(db, establishment)
+
+
+@router.post("/establishment-documents", response_model=EstablishmentDocumentResponse, status_code=201)
+async def upload_establishment_document(
+    document_type: Annotated[str, Form()],
+    photo: Annotated[UploadFile, File()],
+    establishment: CurrentSite,
+    operator: CurrentOperator,
+    s3: Annotated[S3Service, Depends(get_s3_service)],
+) -> EstablishmentDocumentResponse:
+    return await service.upload_establishment_document(
+        document_type, photo, establishment, operator, s3
+    )

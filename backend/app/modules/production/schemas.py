@@ -105,6 +105,11 @@ class OpenedProductLabelResponse(BaseModel):
     storage_location: StorageLocation
 
 
+class EstablishmentDocumentResponse(BaseModel):
+    document_type: str
+    url: str | None = None
+
+
 class DailyMenuItemResponse(BaseModel):
     model_config = {"from_attributes": True}
 

@@ -118,6 +118,19 @@ class ReceptionItemResponse(BaseModel):
     scanned_at: datetime
 
 
+class ReceptionLotSearchItem(BaseModel):
+    """Reception line matched by lot number for sanitary recall."""
+
+    item_id: UUID
+    session_id: UUID
+    lot_number: str
+    dluo: date
+    product_id: UUID
+    product_name: str | None = None
+    received_at: datetime
+    is_compliant: bool
+
+
 class ReceptionSessionDetailResponse(ReceptionSessionResponse):
     """Extended session response that includes the scanned item lines.
 

@@ -128,3 +128,24 @@
     @apply font-sans;
   }
 }
+
+/* ── Kiosque tablette opérateur ─────────────────────────────────────────── */
+.kiosk-operator {
+  font-size: 1.05rem;
+}
+
+.kiosk-footer-alert {
+  animation: kiosk-alert-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes kiosk-alert-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 -4px 24px rgba(220, 38, 38, 0.35);
+  }
+  50% {
+    opacity: 0.88;
+    box-shadow: 0 -4px 32px rgba(220, 38, 38, 0.65);
+  }
+}

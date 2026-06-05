@@ -55,6 +55,7 @@ from app.modules.receptions.models import ReceptionItem, ReceptionSession, Recep
 from app.modules.receptions.schemas import (
     ReceptionItemCreate,
     ReceptionItemResponse,
+    ReceptionLotSearchItem,
     ReceptionSessionCreate,
     ReceptionSessionDetailResponse,
     ReceptionSessionResponse,
@@ -453,3 +454,40 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         opened_at=session.opened_at,
         closed_at=session.closed_at,
     )
+
+
+async def search_reception_items_by_lot(
+    lot_number: str,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> list[ReceptionLotSearchItem]:
+    """Find reception lines matching a lot number (sanitary recall)."""
+    query = lot_number.strip()
+    if not query:
+        return []
+
+    result = await db.execute(
+        select(ReceptionItem, ReceptionSession, Product)
+        .join(ReceptionSession, ReceptionItem.session_id == ReceptionSession.id)
+        .join(Product, ReceptionItem.product_id == Product.id)
+        .where(
+            ReceptionSession.establishment_id == establishment.etablissement_id,
+            ReceptionItem.lot_number.ilike(f"%{query}%"),
+        )
+        .order_by(ReceptionSession.received_at.desc())
+        .limit(50)
+    )
+
+    return [
+        ReceptionLotSearchItem(
+            item_id=item.id,
+            session_id=session.id,
+            lot_number=item.lot_number,
+            dluo=item.dluo,
+            product_id=item.product_id,
+            product_name=product.name,
+            received_at=session.received_at,
+            is_compliant=item.is_compliant,
+        )
+        for item, session, product in result.all()
+    ]

@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from app.api.deps import CurrentOperator, CurrentSite, DatabaseSession, require_feature
 from app.core.features import Feature
@@ -38,6 +38,7 @@ from app.modules.receptions import service
 from app.modules.receptions.schemas import (
     ReceptionItemCreate,
     ReceptionItemResponse,
+    ReceptionLotSearchItem,
     ReceptionSessionCreate,
     ReceptionSessionDetailResponse,
     ReceptionSessionResponse,
@@ -211,6 +212,15 @@ async def add_reception_item(
         ReceptionItemResponse: The created reception item.
     """
     return await service.add_item(session_id, payload, db, establishment, operator)
+
+
+@router.get("/reception-items/search", response_model=list[ReceptionLotSearchItem])
+async def search_reception_items_by_lot(
+    lot_number: Annotated[str, Query(min_length=1, max_length=64)],
+    db: DatabaseSession,
+    establishment: CurrentSite,
+) -> list[ReceptionLotSearchItem]:
+    return await service.search_reception_items_by_lot(lot_number, db, establishment)
 
 
 @router.patch("/reception-sessions/{session_id}/close", response_model=ReceptionSessionResponse)
