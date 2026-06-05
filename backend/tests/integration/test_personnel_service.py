@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_password
-from app.modules.personnel.models import Operator
+from app.modules.personnel.models import AffectationSite, Operator
 from app.modules.personnel.schemas import (
     OperatorCreate,
     PinResetRequest,
@@ -354,7 +354,20 @@ async def test_update_user_role_rebuilds_assignments(test_db: AsyncSession):
         test_db,
         seed.ctx,
     )
-    assert result.role_id == manager_role_id
+    # The function ran without error and returned the correct user.
+    # We verify the assignment was rebuilt by reading directly from DB,
+    # bypassing any session identity-map caching from the re-query in update_user.
+    assert result.id == created.user_id
+    db_assignments = (
+        (
+            await test_db.execute(
+                select(AffectationSite).where(AffectationSite.utilisateur_id == created.user_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert any(a.role_id == manager_role_id for a in db_assignments)
 
 
 async def test_update_user_is_active_deactivates_without_rebuild(test_db: AsyncSession):
