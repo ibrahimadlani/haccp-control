@@ -64,7 +64,7 @@ async def test_create_equipment_wrong_establishment_raises_404(test_db: AsyncSes
     seed = await make_base_seed(test_db)
     payload = EquipmentCreateRequest(
         name="Frigo introuvable",
-        equipment_type=TypeEquipement.REFRIGERATEUR,
+        equipment_type=TypeEquipement.AUTRE,
         min_target_temperature=Decimal("0.00"),
         max_target_temperature=Decimal("4.00"),
         establishment_id=uuid.uuid4(),  # non-existent establishment
@@ -79,7 +79,7 @@ async def test_create_equipment_non_manager_raises_403(test_db: AsyncSession):
     non_manager_ctx = make_establishment_ctx(seed.org, seed.est, seed.operator, is_org_admin=False)
     payload = EquipmentCreateRequest(
         name="Frigo",
-        equipment_type=TypeEquipement.REFRIGERATEUR,
+        equipment_type=TypeEquipement.AUTRE,
         min_target_temperature=Decimal("0.00"),
         max_target_temperature=Decimal("4.00"),
         establishment_id=seed.est.id,
@@ -167,7 +167,9 @@ async def test_update_equipment_invalid_temp_range_raises_422(test_db: AsyncSess
 async def test_update_equipment_not_found_raises_404(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
     with pytest.raises(HTTPException) as exc_info:
-        await update_equipment(uuid.uuid4(), EquipmentUpdateRequest(name="X"), test_db, seed.ctx)
+        await update_equipment(
+            uuid.uuid4(), EquipmentUpdateRequest(name="Inexistant"), test_db, seed.ctx
+        )
     assert exc_info.value.status_code == 404
 
 

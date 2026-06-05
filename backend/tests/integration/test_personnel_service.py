@@ -206,24 +206,120 @@ async def test_create_user_invalid_establishment_raises_400(test_db: AsyncSessio
 
 
 async def test_update_operator_name(test_db: AsyncSession):
-    from app.modules.personnel.schemas import OperatorUpdateRequest
+    from app.modules.personnel.schemas import OperatorUpdate
 
     seed = await make_base_seed(test_db)
     payload = OperatorCreate(first_name="Ancien", last_name="Nom", pin_code="1234")
     op = await create_operator(payload, test_db, seed.ctx)
 
-    result = await update_operator(
-        op.id, OperatorUpdateRequest(first_name="Nouveau"), test_db, seed.ctx
-    )
+    result = await update_operator(op.id, OperatorUpdate(first_name="Nouveau"), test_db, seed.ctx)
     assert result.first_name == "Nouveau"
 
 
 async def test_update_operator_not_found_raises_404(test_db: AsyncSession):
-    from app.modules.personnel.schemas import OperatorUpdateRequest
+    from app.modules.personnel.schemas import OperatorUpdate
 
     seed = await make_base_seed(test_db)
     with pytest.raises(HTTPException) as exc_info:
-        await update_operator(
-            uuid.uuid4(), OperatorUpdateRequest(first_name="X"), test_db, seed.ctx
+        await update_operator(uuid.uuid4(), OperatorUpdate(first_name="Inconnu"), test_db, seed.ctx)
+    assert exc_info.value.status_code == 404
+
+
+# ── update_user ───────────────────────────────────────────────────────────────
+
+
+async def test_update_user_name(test_db: AsyncSession):
+    from app.modules.personnel.schemas import UserUpdateRequest
+    from app.modules.personnel.service import update_user
+
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Ancien",
+        first_name="Prénom",
+        email="update.target@test.com",
+        password="SecurePass123!",
+        pin_code="1234",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    created = await create_user(payload, test_db, seed.ctx)
+
+    result = await update_user(
+        created.user_id, UserUpdateRequest(last_name="Nouveau"), test_db, seed.ctx
+    )
+    assert result.last_name == "Nouveau"
+
+
+async def test_update_user_not_found_raises_404(test_db: AsyncSession):
+    from app.modules.personnel.schemas import UserUpdateRequest
+    from app.modules.personnel.service import update_user
+
+    seed = await make_base_seed(test_db)
+    with pytest.raises(HTTPException) as exc_info:
+        await update_user(uuid.uuid4(), UserUpdateRequest(last_name="X"), test_db, seed.ctx)
+    assert exc_info.value.status_code == 404
+
+
+async def test_update_user_duplicate_email_raises_400(test_db: AsyncSession):
+    from app.modules.personnel.schemas import UserUpdateRequest
+    from app.modules.personnel.service import update_user
+
+    seed = await make_base_seed(test_db)
+    # Try to set email to one that's already taken (the manager's email)
+    payload = UserCreateRequest(
+        last_name="Test",
+        first_name="User",
+        email="original.email@test.com",
+        password="SecurePass123!",
+        pin_code="5678",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    created = await create_user(payload, test_db, seed.ctx)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_user(
+            created.user_id,
+            UserUpdateRequest(email=seed.manager.email),
+            test_db,
+            seed.ctx,
         )
+    assert exc_info.value.status_code == 400
+
+
+# ── delete_user ───────────────────────────────────────────────────────────────
+
+
+async def test_delete_user_soft_delete(test_db: AsyncSession):
+    from sqlalchemy import select
+
+    from app.modules.personnel.models import Utilisateur
+    from app.modules.personnel.service import delete_user
+
+    seed = await make_base_seed(test_db)
+    payload = UserCreateRequest(
+        last_name="Supprimable",
+        first_name="User",
+        email="to.delete@test.com",
+        password="SecurePass123!",
+        pin_code="4321",
+        role_id=seed.operator_role.id,
+        establishment_ids=[seed.est.id],
+    )
+    created = await create_user(payload, test_db, seed.ctx)
+
+    await delete_user(created.user_id, test_db, seed.ctx)
+
+    row = (
+        await test_db.execute(select(Utilisateur).where(Utilisateur.id == created.user_id))
+    ).scalar_one()
+    assert row.deleted_at is not None
+
+
+async def test_delete_user_not_found_raises_404(test_db: AsyncSession):
+    from app.modules.personnel.service import delete_user
+
+    seed = await make_base_seed(test_db)
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_user(uuid.uuid4(), test_db, seed.ctx)
     assert exc_info.value.status_code == 404

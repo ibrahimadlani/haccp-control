@@ -168,3 +168,75 @@ async def test_organization_overview_returns_correct_structure(test_db: AsyncSes
     assert overview.organization_id == seed.org.id
     site_ids = {s.id for s in overview.establishments}
     assert seed.est.id in site_ids
+
+
+# ── Organisation creation ─────────────────────────────────────────────────────
+
+
+async def test_create_organization_happy_path(test_db: AsyncSession):
+    from app.modules.tenant.schemas import OrganisationCreateRequest
+    from app.modules.tenant.service import create_organization
+
+    payload = OrganisationCreateRequest(
+        nom_entite="Nouvelle Org Test",
+        type_secteur="PRIVE",
+        admin_login_email="admin.neworg@test.com",
+        admin_password="SecurePassword12",
+    )
+    result = await create_organization(payload, test_db)
+    assert result.nom_entite == "Nouvelle Org Test"
+    assert result.admin_login_email == "admin.neworg@test.com"
+
+
+async def test_create_organization_duplicate_email_raises_409(test_db: AsyncSession):
+    from app.modules.tenant.schemas import OrganisationCreateRequest
+    from app.modules.tenant.service import create_organization
+
+    payload = OrganisationCreateRequest(
+        nom_entite="Org Duplicate",
+        type_secteur="PRIVE",
+        admin_login_email="duplicate@test.com",
+        admin_password="SecurePassword12",
+    )
+    await create_organization(payload, test_db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_organization(payload, test_db)
+    assert exc_info.value.status_code == 409
+
+
+# ── Establishment creation ────────────────────────────────────────────────────
+
+
+async def test_create_organization_establishment_happy_path(test_db: AsyncSession):
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment
+
+    seed = await make_base_seed(test_db)
+    org_ctx = CurrentOrganisation(
+        organisation_id=seed.org.id,
+        nom_entite=seed.org.nom_entite,
+    )
+    payload = EstablishmentCreateRequest(nom_site="Nouveau site", timezone="Europe/Paris")
+    result = await create_organization_establishment(seed.org.id, payload, test_db, org_ctx)
+    assert result.nom_site == "Nouveau site"
+    assert result.organisation_id == seed.org.id
+
+
+async def test_create_organization_establishment_wrong_org_raises_403(test_db: AsyncSession):
+    import uuid
+
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment
+
+    seed = await make_base_seed(test_db)
+    other_org_ctx = CurrentOrganisation(
+        organisation_id=uuid.uuid4(),
+        nom_entite="Autre org",
+    )
+    payload = EstablishmentCreateRequest(nom_site="Site interdit", timezone="Europe/Paris")
+    with pytest.raises(HTTPException) as exc_info:
+        await create_organization_establishment(seed.org.id, payload, test_db, other_org_ctx)
+    assert exc_info.value.status_code == 403
