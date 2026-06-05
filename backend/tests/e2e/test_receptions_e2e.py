@@ -1,15 +1,13 @@
 """E2E tests for the Receptions domain."""
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
-from app.modules.catalog.models import Supplier, SupplierCountry, SupplierStatus
-from app.modules.catalog.models import Product
+from app.modules.catalog.models import Product, Supplier, SupplierCountry, SupplierStatus
 from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 

@@ -1,7 +1,7 @@
 """Integration tests for app/modules/receptions/service.py."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -39,7 +39,7 @@ async def _open_session(test_db, seed, supplier=None, s3=None, **session_kwargs)
         supplier = await make_supplier(test_db, seed.est)
     payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         **session_kwargs,
     )
     return await open_session(payload, test_db, seed.ctx, seed.operator, None, s3 or _mock_s3())
@@ -69,7 +69,7 @@ async def test_open_session_creates_session(test_db: AsyncSession):
 
     payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     result = await open_session(payload, test_db, seed.ctx, seed.operator, None, _mock_s3())
 
@@ -99,7 +99,7 @@ async def test_open_session_with_bl_photo_uploads_to_s3(test_db: AsyncSession):
     mock_file = MagicMock()
     payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     result = await open_session(payload, test_db, seed.ctx, seed.operator, mock_file, s3)
 
@@ -402,7 +402,6 @@ async def test_add_item_wrong_establishment_product_raises_404(test_db: AsyncSes
     """A product belonging to a different establishment must not be scannable."""
     from tests.integration.conftest import (
         make_establishment,
-        make_establishment_ctx,
         make_organisation,
         make_role,
         make_user,
@@ -412,7 +411,7 @@ async def test_add_item_wrong_establishment_product_raises_404(test_db: AsyncSes
     other_org = await make_organisation(test_db)
     other_est = await make_establishment(test_db, other_org)
     other_role = await make_role(test_db)
-    other_user = await make_user(test_db, other_org, other_est, other_role)
+    await make_user(test_db, other_org, other_est, other_role)
     other_supplier = await make_supplier(test_db, other_est)
     other_product = await make_product(test_db, other_est, other_supplier)
 
@@ -532,7 +531,7 @@ async def test_get_session_bl_photo_url_built_from_key(test_db: AsyncSession):
     mock_file = MagicMock()
     payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(payload, test_db, seed.ctx, seed.operator, mock_file, s3)
 
@@ -658,7 +657,7 @@ async def test_search_reception_items_by_lot_scoped_to_establishment(test_db: As
     other_session = await open_session(
         ReceptionSessionCreate(
             supplier_id=other_supplier.id,
-            received_at=datetime.now(timezone.utc),
+            received_at=datetime.now(UTC),
         ),
         test_db,
         other_ctx,

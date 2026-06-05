@@ -1,6 +1,6 @@
 """Unit tests for Pydantic schema validation."""
 
-from datetime import date
+from datetime import UTC, date
 from decimal import Decimal
 from uuid import uuid4
 
@@ -120,17 +120,17 @@ def test_establishment_settings_model_dump_round_trip():
 
 
 def test_reception_session_create_truck_condition_ok_defaults_to_true():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    req = ReceptionSessionCreate(supplier_id=uuid4(), received_at=datetime.now(timezone.utc))
+    req = ReceptionSessionCreate(supplier_id=uuid4(), received_at=datetime.now(UTC))
     assert req.truck_condition_ok is True
 
 
 def test_reception_session_create_truck_condition_ok_false_accepted():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     req = ReceptionSessionCreate(
-        supplier_id=uuid4(), received_at=datetime.now(timezone.utc), truck_condition_ok=False
+        supplier_id=uuid4(), received_at=datetime.now(UTC), truck_condition_ok=False
     )
     assert req.truck_condition_ok is False
 

@@ -1,5 +1,6 @@
 """Integration tests for app/modules/nonconformities/service.py."""
 
+from datetime import UTC
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -237,7 +238,7 @@ async def test_corrective_action_already_exists_raises_409(test_db: AsyncSession
 
 async def test_list_nonconformities_filter_by_workflow_type_reception(test_db: AsyncSession):
     """type_filter=RECEPTION must return only reception NCs, not temperature ones."""
-    from datetime import date, datetime, timezone
+    from datetime import date, datetime
     from unittest.mock import AsyncMock, MagicMock
 
     from app.modules.nonconformities.models import WorkflowType
@@ -259,7 +260,7 @@ async def test_list_nonconformities_filter_by_workflow_type_reception(test_db: A
     s3.object_url = MagicMock(return_value="http://s3.local/bl/x.jpg")
     session_payload = ReceptionSessionCreate(
         supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     session = await open_session(session_payload, test_db, seed.ctx, seed.operator, None, s3)
     await add_item(
