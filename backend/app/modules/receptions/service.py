@@ -55,6 +55,7 @@ from app.modules.receptions.models import ReceptionItem, ReceptionSession, Recep
 from app.modules.receptions.schemas import (
     ReceptionItemCreate,
     ReceptionItemResponse,
+    ReceptionLotSearchItem,
     ReceptionSessionCreate,
     ReceptionSessionDetailResponse,
     ReceptionSessionResponse,
@@ -186,6 +187,7 @@ async def open_session(
         supplier_id=payload.supplier_id,
         received_at=received_at,
         bl_photo_s3_key=bl_key,
+        truck_condition_ok=payload.truck_condition_ok,
         opened_at=now_for_site(establishment.timezone),
     )
     db.add(session)
@@ -197,6 +199,7 @@ async def open_session(
         session_id=str(session.id),
         supplier_id=str(session.supplier_id),
         has_bl_photo=bl_key is not None,
+        truck_condition_ok=payload.truck_condition_ok,
     )
     return _session_response(session, s3)
 
@@ -277,9 +280,11 @@ async def add_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
 
     is_compliant = payload.is_compliant
-    # Re-validate cold-chain compliance server-side: the tablet may have sent
-    # is_compliant=True for a temperature-controlled product that is actually
-    # out of range (e.g. due to a UI bug or a manipulated request).
+    # Re-validate server-side — the tablet payload cannot be trusted blindly.
+    # 1. Packaging: any observed defect forces non-compliance.
+    if not payload.packaging_ok:
+        is_compliant = False
+    # 2. Cold chain: temperature out of range forces non-compliance.
     if (
         product.has_temperature_control
         and payload.measured_temperature is not None
@@ -314,6 +319,7 @@ async def add_item(
         lot_number=payload.lot_number,
         dluo=payload.dluo,
         measured_temperature=payload.measured_temperature,
+        packaging_ok=payload.packaging_ok,
         is_compliant=is_compliant,
         nc_id=nc_id,
         scanned_at=now_for_site(establishment.timezone),
@@ -423,7 +429,60 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         supplier_id=session.supplier_id,
         received_at=session.received_at,
         bl_photo_url=bl_url,
+        truck_condition_ok=session.truck_condition_ok,
         status=session.status,
         opened_at=session.opened_at,
         closed_at=session.closed_at,
     )
+
+
+async def search_reception_items_by_lot(
+    lot_number: str,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> list[ReceptionLotSearchItem]:
+    """Find reception lines matching a lot number for a sanitary recall.
+
+    Performs a case-insensitive partial match on ``lot_number`` across all
+    reception items for the establishment.  Results are ordered by delivery
+    date descending so the most recent match appears first.
+
+    Args:
+        lot_number (str): The lot/batch identifier to search (partial match).
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+
+    Returns:
+        list[ReceptionLotSearchItem]: Matched items with session and product context,
+            up to 50 results.
+    """
+    query = lot_number.strip()
+    if not query:
+        return []
+
+    result = await db.execute(
+        select(ReceptionItem, ReceptionSession, Product)
+        .join(ReceptionSession, ReceptionItem.session_id == ReceptionSession.id)
+        .join(Product, ReceptionItem.product_id == Product.id)
+        .where(
+            ReceptionSession.establishment_id == establishment.etablissement_id,
+            ReceptionItem.lot_number.ilike(f"%{query}%"),
+        )
+        .order_by(ReceptionSession.received_at.desc())
+        .limit(50)
+    )
+
+    return [
+        ReceptionLotSearchItem(
+            item_id=item.id,
+            session_id=session.id,
+            lot_number=item.lot_number,
+            dluo=item.dluo,
+            product_id=item.product_id,
+            product_name=product.name,
+            received_at=session.received_at,
+            packaging_ok=item.packaging_ok,
+            is_compliant=item.is_compliant,
+        )
+        for item, session, product in result.all()
+    ]
