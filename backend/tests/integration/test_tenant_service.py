@@ -168,3 +168,262 @@ async def test_organization_overview_returns_correct_structure(test_db: AsyncSes
     assert overview.organization_id == seed.org.id
     site_ids = {s.id for s in overview.establishments}
     assert seed.est.id in site_ids
+
+
+# ── Organisation creation ─────────────────────────────────────────────────────
+
+
+async def test_create_organization_happy_path(test_db: AsyncSession):
+    from app.modules.tenant.schemas import OrganisationCreateRequest
+    from app.modules.tenant.service import create_organization
+
+    payload = OrganisationCreateRequest(
+        nom_entite="Nouvelle Org Test",
+        type_secteur="PRIVE",
+        admin_login_email="admin.neworg@test.com",
+        admin_password="SecurePassword12",
+    )
+    result = await create_organization(payload, test_db)
+    assert result.nom_entite == "Nouvelle Org Test"
+    assert result.admin_login_email == "admin.neworg@test.com"
+
+
+async def test_create_organization_duplicate_email_raises_409(test_db: AsyncSession):
+    from app.modules.tenant.schemas import OrganisationCreateRequest
+    from app.modules.tenant.service import create_organization
+
+    payload = OrganisationCreateRequest(
+        nom_entite="Org Duplicate",
+        type_secteur="PRIVE",
+        admin_login_email="duplicate@test.com",
+        admin_password="SecurePassword12",
+    )
+    await create_organization(payload, test_db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_organization(payload, test_db)
+    assert exc_info.value.status_code == 409
+
+
+# ── Establishment creation ────────────────────────────────────────────────────
+
+
+async def test_create_organization_establishment_happy_path(test_db: AsyncSession):
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment
+
+    seed = await make_base_seed(test_db)
+    org_ctx = CurrentOrganisation(
+        organisation_id=seed.org.id,
+        nom_entite=seed.org.nom_entite,
+    )
+    payload = EstablishmentCreateRequest(nom_site="Nouveau site", timezone="Europe/Paris")
+    result = await create_organization_establishment(seed.org.id, payload, test_db, org_ctx)
+    assert result.nom_site == "Nouveau site"
+    assert result.organisation_id == seed.org.id
+
+
+async def test_create_organization_establishment_wrong_org_raises_403(test_db: AsyncSession):
+    import uuid
+
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment
+
+    seed = await make_base_seed(test_db)
+    other_org_ctx = CurrentOrganisation(
+        organisation_id=uuid.uuid4(),
+        nom_entite="Autre org",
+    )
+    payload = EstablishmentCreateRequest(nom_site="Site interdit", timezone="Europe/Paris")
+    with pytest.raises(HTTPException) as exc_info:
+        await create_organization_establishment(seed.org.id, payload, test_db, other_org_ctx)
+    assert exc_info.value.status_code == 403
+
+
+# ── Site equipment (tenant service) ──────────────────────────────────────────
+
+
+async def test_list_site_equipment_returns_active(test_db: AsyncSession):
+    from app.modules.tenant.service import list_site_equipment
+
+    seed = await make_base_seed(test_db)
+    from tests.integration.conftest import make_equipment
+
+    await make_equipment(test_db, seed.est, nom="Frigo site")
+
+    result = await list_site_equipment(seed.est.id, test_db, seed.ctx)
+    names = {e.name for e in result.items}
+    assert "Frigo site" in names
+
+
+async def test_create_site_equipment_happy_path(test_db: AsyncSession):
+    from decimal import Decimal
+
+    from app.modules.equipments.models import TypeEquipement
+    from app.modules.tenant.schemas import SiteEquipmentCreateRequest
+    from app.modules.tenant.service import create_site_equipment
+
+    seed = await make_base_seed(test_db)
+    payload = SiteEquipmentCreateRequest(
+        name="Cellule de refroidissement",
+        equipment_type=TypeEquipement.CELLULE_REFROIDISSEMENT,
+        min_target_temperature=Decimal("0.00"),
+        max_target_temperature=Decimal("4.00"),
+    )
+    result = await create_site_equipment(seed.est.id, payload, test_db, seed.ctx)
+    assert result.name == "Cellule de refroidissement"
+    assert result.etablissement_id == seed.est.id
+
+
+async def test_list_site_users_returns_assigned(test_db: AsyncSession):
+    from app.modules.tenant.service import list_site_users
+
+    seed = await make_base_seed(test_db)
+    result = await list_site_users(seed.est.id, test_db, seed.ctx)
+    emails = {u.email for u in result.items}
+    assert seed.manager.email in emails
+    assert seed.operator.email in emails
+
+
+# ── list_organization_subscriptions ──────────────────────────────────────────
+
+
+async def test_list_organization_subscriptions_happy_path(test_db: AsyncSession):
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.service import list_organization_subscriptions
+
+    seed = await make_base_seed(test_db)
+    org_ctx = CurrentOrganisation(
+        organisation_id=seed.org.id,
+        nom_entite=seed.org.nom_entite,
+    )
+    result = await list_organization_subscriptions(seed.org.id, test_db, org_ctx)
+    assert isinstance(result.items, list)
+
+
+async def test_list_organization_subscriptions_wrong_org_raises_403(test_db: AsyncSession):
+    import uuid
+
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.service import list_organization_subscriptions
+
+    seed = await make_base_seed(test_db)
+    other_ctx = CurrentOrganisation(organisation_id=uuid.uuid4(), nom_entite="Autre")
+    with pytest.raises(HTTPException) as exc_info:
+        await list_organization_subscriptions(seed.org.id, test_db, other_ctx)
+    assert exc_info.value.status_code == 403
+
+
+# ── delete_establishment ──────────────────────────────────────────────────────
+
+
+async def test_delete_establishment_soft_delete(test_db: AsyncSession):
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment, delete_establishment
+
+    seed = await make_base_seed(test_db)
+    org_ctx = CurrentOrganisation(
+        organisation_id=seed.org.id,
+        nom_entite=seed.org.nom_entite,
+    )
+    new_est = await create_organization_establishment(
+        seed.org.id,
+        EstablishmentCreateRequest(nom_site="À supprimer", timezone="Europe/Paris"),
+        test_db,
+        org_ctx,
+    )
+
+    # Build a context authenticated against the MAIN est, deleting a different one
+    await delete_establishment(new_est.id, test_db, seed.ctx)
+
+    from sqlalchemy import select
+
+    from app.modules.tenant.models import Etablissement
+
+    row = (
+        await test_db.execute(select(Etablissement).where(Etablissement.id == new_est.id))
+    ).scalar_one()
+    assert row.deleted_at is not None
+
+
+async def test_delete_establishment_self_raises_400(test_db: AsyncSession):
+    from app.modules.tenant.service import delete_establishment
+
+    seed = await make_base_seed(test_db)
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_establishment(seed.est.id, test_db, seed.ctx)
+    assert exc_info.value.status_code == 400
+
+
+# ── create_organization_establishment with SIRET ──────────────────────────────
+
+
+async def test_create_organization_establishment_with_siret(test_db: AsyncSession):
+    from app.core.dependencies import CurrentOrganisation
+    from app.modules.tenant.schemas import EstablishmentCreateRequest
+    from app.modules.tenant.service import create_organization_establishment
+
+    seed = await make_base_seed(test_db)
+    org_ctx = CurrentOrganisation(
+        organisation_id=seed.org.id,
+        nom_entite=seed.org.nom_entite,
+    )
+    result = await create_organization_establishment(
+        seed.org.id,
+        EstablishmentCreateRequest(
+            nom_site="Site avec SIRET",
+            timezone="Europe/Paris",
+            siret="12345678901234",
+        ),
+        test_db,
+        org_ctx,
+    )
+    assert result.siret == "12345678901234"
+
+
+# ── create_site_affectation update path ──────────────────────────────────────
+
+
+async def test_create_site_affectation_updates_existing(test_db: AsyncSession):
+    """Covers the 'else' branch when assignment already exists (upsert)."""
+    from app.modules.tenant.schemas import SiteAffectationCreateRequest
+    from app.modules.tenant.service import create_site_affectation
+
+    seed = await make_base_seed(test_db)
+    # First call: creates
+    payload = SiteAffectationCreateRequest(
+        utilisateur_id=seed.operator.id,
+        role_id=seed.operator_role.id,
+        poste_principal="Initial",
+        is_active=True,
+    )
+    await create_site_affectation(seed.est.id, payload, test_db, seed.ctx)
+
+    # Second call with same user+role: triggers the update branch
+    payload_update = SiteAffectationCreateRequest(
+        utilisateur_id=seed.operator.id,
+        role_id=seed.operator_role.id,
+        poste_principal="Chef de plonge",
+        is_active=True,
+    )
+    result = await create_site_affectation(seed.est.id, payload_update, test_db, seed.ctx)
+    assert result.poste_principal == "Chef de plonge"
+
+
+# ── update_establishment_settings guards ─────────────────────────────────────
+
+
+async def test_update_establishment_settings_non_admin_raises_403(test_db: AsyncSession):
+    from app.modules.tenant.schemas import EstablishmentSettingsUpdateRequest
+    from app.modules.tenant.service import update_establishment_settings
+
+    seed = await make_base_seed(test_db)
+    non_admin_ctx = make_establishment_ctx(seed.org, seed.est, seed.manager, is_org_admin=False)
+    with pytest.raises(HTTPException) as exc_info:
+        await update_establishment_settings(
+            EstablishmentSettingsUpdateRequest(), test_db, non_admin_ctx
+        )
+    assert exc_info.value.status_code == 403
