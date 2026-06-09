@@ -1,7 +1,7 @@
 """tablet canteen: reception checklist, production temps, witness samples
 
 Revision ID: f1a2b3c4d5e6
-Revises: a2b3c4d5e6f7
+Revises: h1b2c3d4e5f6
 """
 
 from collections.abc import Sequence
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "f1a2b3c4d5e6"
-down_revision: str | Sequence[str] | None = "a2b3c4d5e6f7"
+down_revision: str | Sequence[str] | None = "h1b2c3d4e5f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -25,10 +25,7 @@ production_control_type = postgresql.ENUM(
 
 
 def upgrade() -> None:
-    op.add_column(
-        "reception_sessions",
-        sa.Column("truck_condition_ok", sa.Boolean(), nullable=False, server_default="false"),
-    )
+    # truck_condition_ok déjà ajouté par h1b2c3d4e5f6
     op.add_column(
         "reception_sessions",
         sa.Column("packaging_integrity_ok", sa.Boolean(), nullable=False, server_default="false"),
@@ -125,5 +122,4 @@ def downgrade() -> None:
     op.drop_column("reception_sessions", "lab_report_s3_key")
     op.drop_column("reception_sessions", "canned_goods_inspected_ok")
     op.drop_column("reception_sessions", "packaging_integrity_ok")
-    op.drop_column("reception_sessions", "truck_condition_ok")
     production_control_type.drop(op.get_bind(), checkfirst=True)
