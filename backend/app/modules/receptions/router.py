@@ -133,8 +133,11 @@ async def open_reception_session(
     s3: S3Dep,
     supplier_id: Annotated[UUID, Form()],
     received_at: Annotated[datetime, Form()],
+    truck_condition_ok: Annotated[bool, Form()],
+    packaging_integrity_ok: Annotated[bool, Form()],
+    canned_goods_inspected_ok: Annotated[bool, Form()],
     bl_photo: Annotated[UploadFile | None, File()] = None,
-    truck_condition_ok: Annotated[bool, Form()] = True,
+    lab_report_photo: Annotated[UploadFile | None, File()] = None,
 ) -> ReceptionSessionResponse:
     """Open a new reception session for a supplier delivery.
 
@@ -149,7 +152,6 @@ async def open_reception_session(
         supplier_id (UUID): The delivering supplier (form field).
         received_at (datetime): Operator-supplied delivery timestamp (form field).
         bl_photo (UploadFile | None): Optional delivery-note photo (file field).
-        truck_condition_ok (bool): Delivery vehicle conformity flag (default True).
 
     Returns:
         ReceptionSessionResponse: The created session with BL photo URL.
@@ -158,8 +160,12 @@ async def open_reception_session(
         supplier_id=supplier_id,
         received_at=received_at,
         truck_condition_ok=truck_condition_ok,
+        packaging_integrity_ok=packaging_integrity_ok,
+        canned_goods_inspected_ok=canned_goods_inspected_ok,
     )
-    return await service.open_session(payload, db, establishment, operator, bl_photo, s3)
+    return await service.open_session(
+        payload, db, establishment, operator, bl_photo, lab_report_photo, s3
+    )
 
 
 @router.get("/reception-sessions/{session_id}", response_model=ReceptionSessionDetailResponse)
@@ -214,20 +220,6 @@ async def search_reception_items_by_lot(
     db: DatabaseSession,
     establishment: CurrentSite,
 ) -> list[ReceptionLotSearchItem]:
-    """Search reception items by lot number for sanitary recall.
-
-    Performs a case-insensitive partial match against all reception items for
-    the establishment. Returns the 50 most recent matches ordered by delivery
-    date descending.
-
-    Args:
-        lot_number (str): Lot/batch identifier to search (1–64 chars).
-        db (DatabaseSession): Injected async database session.
-        establishment (CurrentSite): The authenticated device context.
-
-    Returns:
-        list[ReceptionLotSearchItem]: Matched items with session context.
-    """
     return await service.search_reception_items_by_lot(lot_number, db, establishment)
 
 

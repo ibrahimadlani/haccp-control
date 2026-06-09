@@ -11,14 +11,12 @@ Covers two groups:
 2. **Item schemas** — ``ReceptionItemCreate`` and ``ReceptionItemResponse``
    for individual product scan lines within a session.
 
-``ReceptionItemCreate`` includes a ``@model_validator`` that catches logical
-inconsistencies: an item cannot be marked compliant when its measured
-temperature is out of range, or when ``packaging_ok = False``.  The
-``product_min_temp`` and ``product_max_temp`` fields are ``exclude=True`` so
-they are never serialised — they are populated in the router from the catalog.
-
-3. **Search schema** — ``ReceptionLotSearchItem`` for the lot-number recall
-   search endpoint.
+``ReceptionItemCreate`` includes a ``@model_validator`` that catches a
+logical inconsistency: an item cannot be marked compliant when its measured
+temperature is out of the product's allowed range.  The ``product_min_temp``
+and ``product_max_temp`` fields are ``exclude=True`` so they are never
+serialised into the response — they are populated in the router from the
+product catalog before validation runs.
 """
 
 from datetime import date, datetime
@@ -40,14 +38,16 @@ class ReceptionSessionCreate(BaseModel):
         supplier_id (UUID): The delivering supplier.
         received_at (datetime): Operator-supplied delivery timestamp. May be
             timezone-naive; the service normalises it to the site timezone.
-        truck_condition_ok (bool): Delivery vehicle was clean and at correct
-            temperature at arrival. Defaults to ``True``; set to ``False`` when
-            the operator observes a vehicle non-conformity.
+        truck_condition_ok (bool): Camion propre et température livraison OK.
+        packaging_integrity_ok (bool): Emballages intacts à réception.
+        canned_goods_inspected_ok (bool): Boîtes de conserve contrôlées (botulisme).
     """
 
     supplier_id: UUID
     received_at: datetime
-    truck_condition_ok: bool = True
+    truck_condition_ok: bool
+    packaging_integrity_ok: bool
+    canned_goods_inspected_ok: bool
 
 
 class ReceptionSessionResponse(BaseModel):
@@ -64,7 +64,10 @@ class ReceptionSessionResponse(BaseModel):
         supplier_id (UUID): Delivering supplier.
         received_at (datetime): Operator-supplied delivery timestamp.
         bl_photo_url (str | None): Public URL for the BL photo.
-        truck_condition_ok (bool): Delivery vehicle conformity flag.
+        lab_report_url (str | None): Public URL for the microbiological lab report.
+        truck_condition_ok (bool): Delivery truck conformity checklist.
+        packaging_integrity_ok (bool): Packaging integrity checklist.
+        canned_goods_inspected_ok (bool): Canned goods inspection checklist.
         status (ReceptionStatus): OPEN or CLOSED.
         opened_at (datetime): Server-side session creation timestamp.
         closed_at (datetime | None): When the session was closed.
@@ -78,7 +81,10 @@ class ReceptionSessionResponse(BaseModel):
     supplier_id: UUID
     received_at: datetime
     bl_photo_url: str | None = None
+    lab_report_url: str | None = None
     truck_condition_ok: bool
+    packaging_integrity_ok: bool
+    canned_goods_inspected_ok: bool
     status: ReceptionStatus
     opened_at: datetime
     closed_at: datetime | None
@@ -94,7 +100,6 @@ class ReceptionItemResponse(BaseModel):
         lot_number (str): Batch/lot identifier.
         dluo (date): Use-by date.
         measured_temperature (float | None): Measured reception temperature.
-        packaging_ok (bool): Packaging was intact at reception.
         is_compliant (bool): Whether the item passed all reception checks.
         nc_id (UUID | None): Linked non-conformity ticket, if any.
         scanned_at (datetime): Site-local scan timestamp.
@@ -108,26 +113,13 @@ class ReceptionItemResponse(BaseModel):
     lot_number: str
     dluo: date
     measured_temperature: float | None
-    packaging_ok: bool
     is_compliant: bool
     nc_id: UUID | None
     scanned_at: datetime
 
 
 class ReceptionLotSearchItem(BaseModel):
-    """Reception line matched by lot number for sanitary recall.
-
-    Attributes:
-        item_id (UUID): Reception item primary key.
-        session_id (UUID): Owning session.
-        lot_number (str): Matched batch/lot identifier.
-        dluo (date): Use-by date of the matched item.
-        product_id (UUID): Associated product.
-        product_name (str | None): Product display name from catalog.
-        received_at (datetime): Delivery timestamp of the session.
-        packaging_ok (bool): Packaging integrity at reception.
-        is_compliant (bool): Overall compliance of the item.
-    """
+    """Reception line matched by lot number for sanitary recall."""
 
     item_id: UUID
     session_id: UUID
@@ -136,7 +128,6 @@ class ReceptionLotSearchItem(BaseModel):
     product_id: UUID
     product_name: str | None = None
     received_at: datetime
-    packaging_ok: bool
     is_compliant: bool
 
 
@@ -165,10 +156,6 @@ class ReceptionItemCreate(BaseModel):
         lot_number (str): Batch/lot identifier (1–64 chars).
         dluo (date): Use-by date.
         measured_temperature (float | None): Optional temperature reading.
-        packaging_ok (bool): Packaging was intact. Defaults to ``True``;
-            set to ``False`` when any packaging defect is observed (torn,
-            damaged, or swollen for canned goods). Forces ``is_compliant``
-            to ``False`` via the model validator.
         is_compliant (bool): Whether the operator considers the item acceptable.
         product_min_temp (float | None): Injected lower threshold (not serialised).
         product_max_temp (float | None): Injected upper threshold (not serialised).
@@ -178,29 +165,26 @@ class ReceptionItemCreate(BaseModel):
     lot_number: str = Field(min_length=1, max_length=64)
     dluo: date
     measured_temperature: float | None = None
-    packaging_ok: bool = True
     is_compliant: bool
     product_min_temp: float | None = Field(default=None, exclude=True)
     product_max_temp: float | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def validate_compliance(self) -> "ReceptionItemCreate":
-        """Reject items marked compliant when temperature is out of range or packaging is damaged.
+    def validate_temperature_compliance(self) -> "ReceptionItemCreate":
+        """Reject items marked compliant when temperature is out of range.
 
-        Ensures ``is_compliant`` cannot be ``True`` when:
-        - measured temperature is outside the product's allowed range, or
-        - ``packaging_ok = False`` (damaged packaging or swollen canned goods).
+        When all three values are present (measured temperature + both thresholds),
+        an item cannot be flagged ``is_compliant = True`` if the temperature falls
+        outside the product's allowed range.  This prevents operators from
+        accidentally accepting non-compliant cold-chain products.
 
         Returns:
             ReceptionItemCreate: The validated model instance.
 
         Raises:
-            ValueError: If ``is_compliant`` is inconsistent with observed defects.
+            ValueError: If the temperature is out of range but ``is_compliant``
+                is ``True``.
         """
-        if not self.packaging_ok and self.is_compliant:
-            raise ValueError(
-                "is_compliant doit être False : l'emballage est non conforme."
-            )
         if (
             self.measured_temperature is not None
             and self.product_min_temp is not None

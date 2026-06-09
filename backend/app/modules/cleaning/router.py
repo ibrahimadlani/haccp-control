@@ -37,6 +37,7 @@ from app.modules.cleaning.schemas import (
     CleaningRoutineResponse,
     CleaningTaskTemplateCreate,
     CleaningTaskTemplateResponse,
+    CleaningTaskTemplateUpdate,
     CleaningZoneCreate,
     CleaningZoneListResponse,
     CleaningZoneResponse,
@@ -207,6 +208,17 @@ async def create_task_template(
         CleaningTaskTemplateResponse: The created task template.
     """
     return await service.create_task_template(routine_id, payload, db, establishment)
+
+
+@router.patch("/cleaning-tasks/{task_id}", response_model=CleaningTaskTemplateResponse)
+async def update_task_template(
+    task_id: UUID,
+    payload: CleaningTaskTemplateUpdate,
+    db: DatabaseSession,
+    establishment: CurrentSite,
+) -> CleaningTaskTemplateResponse:
+    """Update a task template (name, instructions, assignee)."""
+    return await service.update_task_template(task_id, payload, db, establishment)
 
 
 @router.delete("/cleaning-tasks/{task_id}", status_code=204)

@@ -12,6 +12,7 @@ import {
   Plus,
   SprayCan,
   Trash2,
+  User,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -71,14 +72,16 @@ import {
   getCleaningRoutineDetail,
   getCleaningRoutines,
   getCleaningZones,
+  updateCleaningTask,
 } from "@/lib/api/cleaning"
-import { loadEstablishmentToken } from "@/lib/session/establishment"
+import { getEstablishmentUsers } from "@/lib/api/auth"
+import { loadEstablishmentContext, loadEstablishmentToken } from "@/lib/session/establishment"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SCHEDULE_LABELS = {
-  OPENING: "Ouverture",
-  CLOSING: "Fermeture",
+  OPENING: "Avant le repas",
+  CLOSING: "Après le repas",
   WEEKLY: "Hebdomadaire",
   MONTHLY: "Mensuel",
 }
@@ -91,8 +94,8 @@ const SCHEDULE_COLORS = {
 }
 
 const SCHEDULE_OPTIONS = [
-  { value: "OPENING", label: "Ouverture" },
-  { value: "CLOSING", label: "Fermeture" },
+  { value: "OPENING", label: "Avant le repas" },
+  { value: "CLOSING", label: "Après le repas" },
   { value: "WEEKLY", label: "Hebdomadaire" },
   { value: "MONTHLY", label: "Mensuel" },
 ]
@@ -101,6 +104,14 @@ const SCHEDULE_OPTIONS = [
 
 function token() {
   return loadEstablishmentToken()
+}
+
+function operatorLabel(user) {
+  if (!user) return ""
+  return (
+    user.nom_complet ??
+    `${user.prenom ?? user.first_name ?? ""} ${user.nom ?? user.last_name ?? ""}`.trim()
+  )
 }
 
 // ── Dialogs ───────────────────────────────────────────────────────────────────
@@ -243,15 +254,19 @@ function NewRoutineDialog({ open, onClose, onCreated }) {
   )
 }
 
-function NewTaskDialog({ open, onClose, onCreated, routineId, zones, preselectedZoneId }) {
+function NewTaskDialog({ open, onClose, onCreated, routineId, zones, operators, preselectedZoneId }) {
   const [zoneId, setZoneId] = useState(preselectedZoneId ?? "")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
+  const [assigneeId, setAssigneeId] = useState("")
   const [saving, setSaving] = useState(false)
 
   // Sync preselected zone when dialog opens
   useEffect(() => {
-    if (open) setZoneId(preselectedZoneId ?? "")
+    if (open) {
+      setZoneId(preselectedZoneId ?? "")
+      setAssigneeId("")
+    }
   }, [open, preselectedZoneId])
 
   async function handleSubmit(e) {
@@ -263,6 +278,7 @@ function NewTaskDialog({ open, onClose, onCreated, routineId, zones, preselected
         zone_id: zoneId,
         name: name.trim(),
         description: description.trim() || null,
+        assigned_operator_id: assigneeId || null,
       })
       toast.success("Tâche ajoutée")
       onCreated(task)
@@ -328,6 +344,22 @@ function NewTaskDialog({ open, onClose, onCreated, routineId, zones, preselected
               className="resize-none"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Assigné à</Label>
+            <Select value={assigneeId || "__none__"} onValueChange={(v) => setAssigneeId(v === "__none__" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Toute l'équipe" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Toute l&apos;équipe</SelectItem>
+                {operators.map((op) => (
+                  <SelectItem key={op.id} value={op.id}>
+                    {operatorLabel(op)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Annuler
@@ -343,9 +375,77 @@ function NewTaskDialog({ open, onClose, onCreated, routineId, zones, preselected
   )
 }
 
+function EditAssigneeDialog({ open, onClose, task, operators, onSaved }) {
+  const [assigneeId, setAssigneeId] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open && task) setAssigneeId(task.assigned_operator_id ?? "")
+  }, [open, task])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!task) return
+    setSaving(true)
+    try {
+      await updateCleaningTask(token(), task.task_id, {
+        assigned_operator_id: assigneeId || null,
+      })
+      toast.success("Assignation mise à jour")
+      onSaved()
+      onClose()
+    } catch (err) {
+      toast.error(String(err.message))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <User className="h-4 w-4 text-primary" />
+            Assigner la tâche
+          </DialogTitle>
+          <DialogDescription>{task?.name}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label>Responsable</Label>
+            <Select value={assigneeId || "__none__"} onValueChange={(v) => setAssigneeId(v === "__none__" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Toute l'équipe" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Toute l&apos;équipe</SelectItem>
+                {operators.map((op) => (
+                  <SelectItem key={op.id} value={op.id}>
+                    {operatorLabel(op)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── ZoneSection (within a routine tab) ───────────────────────────────────────
 
-function ZoneSection({ zoneItem, onAddTask, onDeleteTask }) {
+function ZoneSection({ zoneItem, operators, onAddTask, onDeleteTask, onEditAssignee }) {
   const [expanded, setExpanded] = useState(true)
 
   return (
@@ -405,7 +505,26 @@ function ZoneSection({ zoneItem, onAddTask, onDeleteTask }) {
                           {task.description}
                         </p>
                       )}
+                      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <User className="h-3 w-3" />
+                        {task.assigned_operator_name ?? "Toute l'équipe"}
+                      </p>
                     </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-muted-foreground"
+                            onClick={() => onEditAssignee(task)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Modifier l&apos;assignation</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -434,13 +553,14 @@ function ZoneSection({ zoneItem, onAddTask, onDeleteTask }) {
 
 // ── RoutineTab ────────────────────────────────────────────────────────────────
 
-function RoutineTab({ routine, zones, onRoutineChange }) {
+function RoutineTab({ routine, zones, operators, onRoutineChange }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [newTaskZoneId, setNewTaskZoneId] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [editAssigneeTask, setEditAssigneeTask] = useState(null)
 
   const loadDetail = useCallback(async () => {
     setLoading(true)
@@ -513,8 +633,10 @@ function RoutineTab({ routine, zones, onRoutineChange }) {
             <ZoneSection
               key={zoneItem.zone_id}
               zoneItem={zoneItem}
+              operators={operators}
               onAddTask={handleAddTask}
               onDeleteTask={(id, name) => setDeleteTarget({ id, name })}
+              onEditAssignee={setEditAssigneeTask}
             />
           ))}
 
@@ -549,7 +671,16 @@ function RoutineTab({ routine, zones, onRoutineChange }) {
         onCreated={handleTaskCreated}
         routineId={routine.id}
         zones={zones}
+        operators={operators}
         preselectedZoneId={newTaskZoneId}
+      />
+
+      <EditAssigneeDialog
+        open={!!editAssigneeTask}
+        onClose={() => setEditAssigneeTask(null)}
+        task={editAssigneeTask}
+        operators={operators}
+        onSaved={loadDetail}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
@@ -672,6 +803,7 @@ function ZonesTab({ zones, onZoneDeleted }) {
 export default function CleaningPlanPage() {
   const [routines, setRoutines] = useState([])
   const [zones, setZones] = useState([])
+  const [operators, setOperators] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("zones")
 
@@ -683,11 +815,17 @@ export default function CleaningPlanPage() {
 
   useEffect(() => {
     const t = token()
+    const ctx = loadEstablishmentContext()
     if (!t) return
-    Promise.all([getCleaningRoutines(t), getCleaningZones(t)])
-      .then(([r, z]) => {
+    const usersPromise = ctx?.etablissement_id
+      ? getEstablishmentUsers(t, ctx.etablissement_id, "SITE_EMPLOYEE").catch(() => [])
+      : Promise.resolve([])
+    Promise.all([getCleaningRoutines(t), getCleaningZones(t), usersPromise])
+      .then(([r, z, usersData]) => {
         setRoutines(r.items ?? [])
         setZones(z.items ?? [])
+        const list = Array.isArray(usersData) ? usersData : usersData?.items ?? []
+        setOperators(list.filter((u) => u.is_active !== false))
         if ((r.items ?? []).length > 0) setActiveTab(r.items[0].id)
       })
       .catch(() => toast.error("Impossible de charger le plan sanitaire."))
@@ -834,7 +972,7 @@ export default function CleaningPlanPage() {
                 </Badge>
                 <span className="text-sm text-muted-foreground">{r.name}</span>
               </div>
-              <RoutineTab routine={r} zones={zones} onRoutineChange={() => {}} />
+              <RoutineTab routine={r} zones={zones} operators={operators} onRoutineChange={() => {}} />
             </TabsContent>
           ))}
         </Tabs>

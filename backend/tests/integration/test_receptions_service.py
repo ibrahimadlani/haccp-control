@@ -1,8 +1,7 @@
 """Integration tests for app/modules/receptions/service.py."""
 
 import uuid
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,18 +27,43 @@ def _mock_s3():
     return s3
 
 
+def _session_create(supplier_id, received_at=None):
+    return ReceptionSessionCreate(
+        supplier_id=supplier_id,
+        received_at=received_at or datetime.now(UTC),
+        truck_condition_ok=True,
+        packaging_integrity_ok=True,
+        canned_goods_inspected_ok=True,
+    )
+
+
 # ── Open session ──────────────────────────────────────────────────────────────
+
+
+async def test_open_session_rejects_incomplete_checklist(test_db: AsyncSession):
+    seed = await make_base_seed(test_db)
+    supplier = await make_supplier(test_db, seed.est)
+
+    payload = ReceptionSessionCreate(
+        supplier_id=supplier.id,
+        received_at=datetime.now(UTC),
+        truck_condition_ok=True,
+        packaging_integrity_ok=False,
+        canned_goods_inspected_ok=True,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await open_session(payload, test_db, seed.ctx, seed.operator, None, None, _mock_s3())
+    assert exc_info.value.status_code == 422
 
 
 async def test_open_session_creates_session(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
 
-    payload = ReceptionSessionCreate(
-        supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
+    payload = _session_create(supplier.id)
+    result = await open_session(
+        payload, test_db, seed.ctx, seed.operator, None, None, _mock_s3()
     )
-    result = await open_session(payload, test_db, seed.ctx, seed.operator, None, _mock_s3())
 
     assert result.id is not None
     assert result.supplier_id == supplier.id
@@ -54,12 +78,8 @@ async def test_add_item_compliant_no_nc(test_db: AsyncSession):
     supplier = await make_supplier(test_db, seed.est, status=SupplierStatus.APPROVED)
     product = await make_product(test_db, seed.est, supplier)
 
-    session_payload = ReceptionSessionCreate(
-        supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
-    )
     session = await open_session(
-        session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
+        _session_create(supplier.id), test_db, seed.ctx, seed.operator, None, None, _mock_s3()
     )
 
     item_payload = ReceptionItemCreate(
@@ -71,9 +91,15 @@ async def test_add_item_compliant_no_nc(test_db: AsyncSession):
     item = await add_item(session.id, item_payload, test_db, seed.ctx, seed.operator)
     assert item.is_compliant is True
 
-    ncs = (await test_db.execute(
-        select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
-    )).scalars().all()
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(NonConformity.establishment_id == seed.est.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 0
 
 
@@ -82,12 +108,8 @@ async def test_add_item_non_compliant_creates_nc(test_db: AsyncSession):
     supplier = await make_supplier(test_db, seed.est, status=SupplierStatus.APPROVED)
     product = await make_product(test_db, seed.est, supplier)
 
-    session_payload = ReceptionSessionCreate(
-        supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
-    )
     session = await open_session(
-        session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
+        _session_create(supplier.id), test_db, seed.ctx, seed.operator, None, None, _mock_s3()
     )
 
     item_payload = ReceptionItemCreate(
@@ -99,12 +121,18 @@ async def test_add_item_non_compliant_creates_nc(test_db: AsyncSession):
     item = await add_item(session.id, item_payload, test_db, seed.ctx, seed.operator)
     assert item.is_compliant is False
 
-    ncs = (await test_db.execute(
-        select(NonConformity).where(
-            NonConformity.establishment_id == seed.est.id,
-            NonConformity.workflow_type == WorkflowType.RECEPTION,
+    ncs = (
+        (
+            await test_db.execute(
+                select(NonConformity).where(
+                    NonConformity.establishment_id == seed.est.id,
+                    NonConformity.workflow_type == WorkflowType.RECEPTION,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(ncs) == 1
     assert ncs[0].status == NonConformityStatus.OPEN
 
@@ -114,12 +142,8 @@ async def test_add_item_to_closed_session_raises_409(test_db: AsyncSession):
     supplier = await make_supplier(test_db, seed.est)
     product = await make_product(test_db, seed.est, supplier)
 
-    session_payload = ReceptionSessionCreate(
-        supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
-    )
     session = await open_session(
-        session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
+        _session_create(supplier.id), test_db, seed.ctx, seed.operator, None, None, _mock_s3()
     )
     await close_session(session.id, test_db, seed.ctx)
 
@@ -141,12 +165,8 @@ async def test_close_session(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
     supplier = await make_supplier(test_db, seed.est)
 
-    session_payload = ReceptionSessionCreate(
-        supplier_id=supplier.id,
-        received_at=datetime.now(timezone.utc),
-    )
     session = await open_session(
-        session_payload, test_db, seed.ctx, seed.operator, None, _mock_s3()
+        _session_create(supplier.id), test_db, seed.ctx, seed.operator, None, None, _mock_s3()
     )
     result = await close_session(session.id, test_db, seed.ctx)
     assert result.status.upper() == "CLOSED"

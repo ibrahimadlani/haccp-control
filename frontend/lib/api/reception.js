@@ -37,18 +37,28 @@ export function deleteProduct(token, productId) {
 /**
  * Open a new reception session.
  * Sends multipart/form-data to support an optional BL photo.
- * @param {boolean} [truckConditionOk=true] - Delivery vehicle was clean and at correct temp.
  */
 export function openReceptionSession(
   token,
   { pin, operatorId },
-  { supplierId, receivedAt, blPhoto, truckConditionOk = true },
+  {
+    supplierId,
+    receivedAt,
+    blPhoto,
+    labReportPhoto,
+    truckConditionOk,
+    packagingIntegrityOk,
+    cannedGoodsInspectedOk,
+  },
 ) {
   const form = new FormData()
   form.append("supplier_id", supplierId)
   form.append("received_at", receivedAt) // ISO string e.g. "2026-06-03T14:30:00"
   form.append("truck_condition_ok", String(Boolean(truckConditionOk)))
+  form.append("packaging_integrity_ok", String(Boolean(packagingIntegrityOk)))
+  form.append("canned_goods_inspected_ok", String(Boolean(cannedGoodsInspectedOk)))
   if (blPhoto) form.append("bl_photo", blPhoto)
+  if (labReportPhoto) form.append("lab_report_photo", labReportPhoto)
 
   return apiCall("/api/v1/reception-sessions", {
     method: "POST",
@@ -75,10 +85,6 @@ export function addReceptionItem(token, { pin, operatorId }, sessionId, item) {
   })
 }
 
-/**
- * Search reception items by lot number for sanitary recall.
- * Returns up to 50 matches, most recent first.
- */
 export function searchReceptionByLot(token, lotNumber) {
   const params = new URLSearchParams({ lot_number: lotNumber })
   return apiCall(`/api/v1/reception-items/search?${params}`, {

@@ -11,10 +11,10 @@ reception workflow:
   reception is complete.
 
 - ``ReceptionItem`` — one scanned product line within a session.  Carries
-  the lot number, use-by date (DLUO), optional measured temperature,
-  a packaging-integrity flag, and an overall compliance flag.  When
-  ``is_compliant = False`` (temperature out of range, packaging damaged, or
-  manually flagged), a ``NonConformity`` ticket is automatically created with
+  the lot number, use-by date (DLUO), optional measured temperature, and
+  a compliance flag.  When ``is_compliant = False`` (either because the
+  temperature is out of range or the operator manually marks it non-compliant),
+  a ``NonConformity`` ticket is automatically created with
   ``workflow_type = RECEPTION``.
 
 The ``bl_photo_s3_key`` column stores the S3 object key of the delivery-note
@@ -65,10 +65,6 @@ class ReceptionSession(TimestampMixin, Base):
             (timezone-aware, normalised to the establishment's local timezone).
         bl_photo_s3_key (str | None): S3 object key for the delivery-note photo.
             ``None`` when no photo was taken.
-        truck_condition_ok (bool): Delivery vehicle was clean and at the correct
-            temperature at arrival (a session-wide control per HACCP reception
-            requirements). Defaults to ``True`` — operators only update it when
-            a non-conformity is observed.
         status (ReceptionStatus): OPEN while in progress, CLOSED after confirmation.
         opened_at (datetime): Server-side session creation timestamp.
         closed_at (datetime | None): When the session was closed.
@@ -101,8 +97,15 @@ class ReceptionSession(TimestampMixin, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     bl_photo_s3_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    lab_report_s3_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     truck_condition_ok: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    packaging_integrity_ok: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    canned_goods_inspected_ok: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     status: Mapped[ReceptionStatus] = mapped_column(
         Enum(ReceptionStatus, name="reception_status", native_enum=True),
@@ -139,14 +142,8 @@ class ReceptionItem(TimestampMixin, Base):
         dluo (date): Use-by date (Date de Limite d'Utilisation Optimale).
         measured_temperature (float | None): Measured reception temperature in
             Celsius. ``None`` when the product has no cold-chain requirement.
-        packaging_ok (bool): Packaging was intact at reception — covers both
-            general packaging integrity and bombage/swelling on canned goods
-            (botulism indicator). Defaults to ``True``; set to ``False`` when
-            any packaging defect is observed. Forces ``is_compliant = False``
-            in the service layer.
         is_compliant (bool): Whether the item passed all reception checks.
-            Set to ``False`` automatically when temperature is out of range or
-            ``packaging_ok = False``.
+            Set to ``False`` automatically when the temperature is out of range.
         nc_id (UUID | None): FK to the non-conformity ticket opened for this
             item. ``None`` for compliant items. SET NULL on delete.
         scanned_at (datetime): Site-local timestamp of when the item was scanned.
@@ -171,9 +168,6 @@ class ReceptionItem(TimestampMixin, Base):
     lot_number: Mapped[str] = mapped_column(String(128), nullable=False)
     dluo: Mapped[date] = mapped_column(Date, nullable=False)
     measured_temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
-    packaging_ok: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
-    )
     is_compliant: Mapped[bool] = mapped_column(Boolean, nullable=False)
     nc_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("non_conformities.id", ondelete="SET NULL"), nullable=True

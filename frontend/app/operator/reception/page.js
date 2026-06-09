@@ -2,30 +2,23 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-  PackageCheck,
-  Plus,
-  Thermometer,
-  X,
-} from "lucide-react"
+import { Camera, Check, Loader2, Plus, Thermometer } from "lucide-react"
 import { toast } from "sonner"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
+import { KioskBackButton } from "@/components/kiosk/KioskBackButton"
+import { KIOSK_PHASES } from "@/lib/kiosk/phases"
 import {
   addReceptionItem,
   closeReceptionSession,
@@ -36,648 +29,392 @@ import {
 import { createSupplier, getSuppliers } from "@/lib/api/suppliers"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
+import { cn } from "@/lib/utils"
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+const COMPLIANCE_CHECKS = [
+  {
+    key: "tempOk",
+    label: "Température conforme",
+    hint: "Température entre -18 °C et +7 °C",
+  },
+  {
+    key: "packagingOk",
+    label: "Emballage conforme",
+    hint: "Emballage intact, non ouvert, non mouillé",
+  },
+  {
+    key: "labelOk",
+    label: "Étiquette présente",
+    hint: "Étiquette lisible et complète",
+  },
+  {
+    key: "dluoOk",
+    label: "DLUO vérifiée",
+    hint: "Date limite d'utilisation optimale vérifiée",
+  },
+]
 
-function isTempOutOfRange(temp, product) {
-  if (!product?.has_temperature_control) return false
-  if (temp === "" || temp === null || temp === undefined) return false
-  const t = parseFloat(temp)
-  if (isNaN(t)) return false
-  return t < product.min_target_temperature || t > product.max_target_temperature
+function isGlobalTempOk(value) {
+  if (value === "" || value == null) return false
+  const t = parseFloat(value)
+  if (Number.isNaN(t)) return false
+  return t >= -18 && t <= 7
 }
 
-const TODAY_ISO = new Date().toISOString().split("T")[0]
-
-/** Round a Date to the nearest 15-minute boundary. */
-function roundToNearest15(d) {
-  const ms = 15 * 60 * 1000
-  return new Date(Math.round(d.getTime() / ms) * ms)
-}
-
-/** Default received_at: today + current time rounded to 15 min. */
-function defaultReceivedAt() {
-  const rounded = roundToNearest15(new Date())
-  const pad = (n) => String(n).padStart(2, "0")
-  const date = `${rounded.getFullYear()}-${pad(rounded.getMonth() + 1)}-${pad(rounded.getDate())}`
-  const time = `${pad(rounded.getHours())}:${pad(rounded.getMinutes())}`
-  return { date, time }
-}
-
-/** Build all 15-min slots for a day (96 entries). */
-function timeSlots() {
-  const slots = []
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      const hh = String(h).padStart(2, "0")
-      const mm = String(m).padStart(2, "0")
-      slots.push(`${hh}:${mm}`)
-    }
-  }
-  return slots
-}
-const TIME_SLOTS = timeSlots()
-
-// ── DateTimePicker ────────────────────────────────────────────────────────────
-
-function DateTimePicker({ date, time, onDateChange, onTimeChange }) {
+function ComplianceCheckRow({ item, checked, onChange }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <div className="space-y-1.5">
-        <Label htmlFor="recv-date">Date de réception</Label>
-        <Input
-          id="recv-date"
-          type="date"
-          value={date}
-          onChange={(e) => onDateChange(e.target.value)}
-          required
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="recv-time">Heure</Label>
-        <select
-          id="recv-time"
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          value={time}
-          onChange={(e) => onTimeChange(e.target.value)}
-        >
-          {TIME_SLOTS.map((slot) => (
-            <option key={slot} value={slot}>{slot}</option>
-          ))}
-        </select>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors",
+        checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border-2",
+          checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white",
+        )}
+      >
+        {checked && <Check className="h-4 w-4" />}
+      </span>
+      <span>
+        <span className="block text-[1.15rem] font-semibold text-slate-900">{item.label}</span>
+        <span className="mt-0.5 block text-[1rem] text-slate-500">{item.hint}</span>
+      </span>
+    </button>
   )
 }
 
-// ── Quick-add dialogs ─────────────────────────────────────────────────────────
-
-function AddSupplierDialog({ open, onClose, onCreated }) {
-  const [name, setName] = useState("")
-  const [country, setCountry] = useState("France")
-  const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    const token = loadEstablishmentToken()
-    if (!token || !name.trim()) return
-    setLoading(true)
-    try {
-      const supplier = await createSupplier(token, { name: name.trim(), country })
-      toast.success(`Fournisseur "${supplier.name}" ajouté`)
-      onCreated(supplier)
-      setName("")
-      setCountry("France")
-    } catch (err) {
-      toast.error(String(err.message))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Nouveau fournisseur</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="s-name">Nom *</Label>
-            <Input
-              id="s-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Boucherie Dupont"
-              required
-              autoFocus
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="s-country">Pays</Label>
-            <select
-              id="s-country"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-            >
-              {["France","Belgique","Suisse","Luxembourg","Allemagne","Espagne","Italie","Pays-Bas","Royaume-Uni","Autre"].map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
-              Annuler
-            </Button>
-            <Button type="submit" className="flex-1" disabled={!name.trim() || loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Ajouter
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function AddProductDialog({ open, onClose, onCreated, supplierId }) {
-  const [name, setName] = useState("")
-  const [reference, setReference] = useState("")
-  const [hasTempControl, setHasTempControl] = useState(false)
-  const [minTemp, setMinTemp] = useState("")
-  const [maxTemp, setMaxTemp] = useState("")
-  const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    const token = loadEstablishmentToken()
-    if (!token || !name.trim()) return
-    setLoading(true)
-    try {
-      const payload = {
-        name: name.trim(),
-        reference: reference.trim() || null,
-        supplier_id: supplierId ?? null,
-        has_temperature_control: hasTempControl,
-        min_target_temperature: hasTempControl ? parseFloat(minTemp) : null,
-        max_target_temperature: hasTempControl ? parseFloat(maxTemp) : null,
-      }
-      const product = await createProduct(token, payload)
-      toast.success(`Produit "${product.name}" ajouté`)
-      onCreated(product)
-      setName(""); setReference(""); setHasTempControl(false); setMinTemp(""); setMaxTemp("")
-    } catch (err) {
-      toast.error(String(err.message))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const tempValid = !hasTempControl || (
-    minTemp !== "" && maxTemp !== "" && parseFloat(minTemp) < parseFloat(maxTemp)
-  )
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Nouveau produit</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="p-name">Nom *</Label>
-            <Input
-              id="p-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Escalope de veau"
-              required
-              autoFocus
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="p-ref">Référence</Label>
-            <Input
-              id="p-ref"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="REF-001"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label className="text-sm font-medium">Contrôle de température</Label>
-              <p className="text-xs text-muted-foreground">Activer si produit réfrigéré / surgelé</p>
-            </div>
-            <Switch checked={hasTempControl} onCheckedChange={setHasTempControl} />
-          </div>
-          {hasTempControl && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="p-min">Temp. min (°C) *</Label>
-                <Input
-                  id="p-min"
-                  type="number"
-                  step="0.5"
-                  value={minTemp}
-                  onChange={(e) => setMinTemp(e.target.value)}
-                  placeholder="0"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="p-max">Temp. max (°C) *</Label>
-                <Input
-                  id="p-max"
-                  type="number"
-                  step="0.5"
-                  value={maxTemp}
-                  onChange={(e) => setMaxTemp(e.target.value)}
-                  placeholder="4"
-                  required
-                />
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2 pt-1">
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
-              Annuler
-            </Button>
-            <Button type="submit" className="flex-1" disabled={!name.trim() || !tempValid || loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Ajouter
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ── Part 1 — Session opener ───────────────────────────────────────────────────
-
-function SessionOpener({ onSessionOpened }) {
-  const { operator } = useOperator()
-  const [suppliers, setSuppliers] = useState([])
-  const [supplierId, setSupplierId] = useState("")
-  const { date: defaultDate, time: defaultTime } = defaultReceivedAt()
-  const [recvDate, setRecvDate] = useState(defaultDate)
-  const [recvTime, setRecvTime] = useState(defaultTime)
-  const [blPhoto, setBlPhoto] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [addSupplierOpen, setAddSupplierOpen] = useState(false)
-  const fileRef = useRef(null)
-
-  useEffect(() => {
-    const token = loadEstablishmentToken()
-    if (!token) return
-    getSuppliers(token).then((data) => setSuppliers(data.items ?? [])).catch(() => {})
-  }, [])
-
-  function handleSupplierCreated(supplier) {
-    setSuppliers((prev) => [...prev, supplier].sort((a, b) => a.name.localeCompare(b.name)))
-    setSupplierId(supplier.id)
-    setAddSupplierOpen(false)
-  }
-
-  async function handleStart(e) {
-    e.preventDefault()
-    if (!supplierId) return
-    const token = loadEstablishmentToken()
-    if (!token || !operator) return
-    setLoading(true)
-    try {
-      const receivedAt = `${recvDate}T${recvTime}:00`
-      const session = await openReceptionSession(
-        token,
-        { pin: operator.pin, operatorId: operator.id },
-        { supplierId, receivedAt, blPhoto },
-      )
-      onSessionOpened(session)
-    } catch (err) {
-      toast.error(String(err.message))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="mx-auto max-w-sm space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Nouvelle réception</h1>
-        <p className="text-sm text-muted-foreground">Sélectionnez le fournisseur pour démarrer</p>
-      </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          <form onSubmit={handleStart} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="supplier">Fournisseur</Label>
-              <div className="flex gap-2">
-                <select
-                  id="supplier"
-                  className="flex h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                  required
-                >
-                  <option value="">Choisir…</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => setAddSupplierOpen(true)}
-                  title="Ajouter un fournisseur"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <DateTimePicker
-              date={recvDate}
-              time={recvTime}
-              onDateChange={setRecvDate}
-              onTimeChange={setRecvTime}
-            />
-
-            <div className="space-y-1.5">
-              <Label>Photo du BL (optionnel)</Label>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                  {blPhoto ? blPhoto.name : "Choisir un fichier"}
-                </Button>
-                {blPhoto && (
-                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => setBlPhoto(null)}>
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <input ref={fileRef} type="file" accept="image/jpeg,image/png" className="hidden"
-                onChange={(e) => setBlPhoto(e.target.files?.[0] ?? null)} />
-            </div>
-
-            <Button type="submit" className="w-full" disabled={!supplierId || loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Démarrer la réception
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <AddSupplierDialog
-        open={addSupplierOpen}
-        onClose={() => setAddSupplierOpen(false)}
-        onCreated={handleSupplierCreated}
-      />
-    </div>
-  )
-}
-
-// ── Part 2 — Scan & Go ────────────────────────────────────────────────────────
-
-function ScanAndGo({ session }) {
+export default function ReceptionPage() {
   const router = useRouter()
   const { operator } = useOperator()
+  const fileRef = useRef(null)
 
+  const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
-  const [items, setItems] = useState([])
-  const [closing, setClosing] = useState(false)
-  const [addProductOpen, setAddProductOpen] = useState(false)
-
-  // Form state
+  const [supplierId, setSupplierId] = useState("")
   const [productId, setProductId] = useState("")
   const [lot, setLot] = useState("")
   const [dluo, setDluo] = useState("")
   const [temp, setTemp] = useState("")
+  const [blPhoto, setBlPhoto] = useState(null)
+  const [checks, setChecks] = useState({
+    tempOk: false,
+    packagingOk: false,
+    labelOk: false,
+    dluoOk: false,
+  })
   const [submitting, setSubmitting] = useState(false)
+  const [reserveDialogOpen, setReserveDialogOpen] = useState(false)
 
-  const selectedProduct = products.find((p) => p.id === productId) ?? null
-  const outOfRange = isTempOutOfRange(temp, selectedProduct)
+  const allChecksDone = Object.values(checks).every(Boolean)
 
   useEffect(() => {
     const token = loadEstablishmentToken()
     if (!token) return
-    getProducts(token, { supplierId: session.supplier_id })
+    getSuppliers(token)
+      .then((data) => setSuppliers(data.items ?? []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const token = loadEstablishmentToken()
+    if (!token || !supplierId) {
+      setProducts([])
+      setProductId("")
+      return
+    }
+    getProducts(token, { supplierId })
       .then((data) => setProducts(data.items ?? []))
       .catch(() => {})
-  }, [session.supplier_id])
+  }, [supplierId])
 
-  function handleProductCreated(product) {
-    setProducts((prev) => [...prev, product].sort((a, b) => a.name.localeCompare(b.name)))
-    setProductId(product.id)
-    setAddProductOpen(false)
+  function updateCheck(key, value) {
+    setChecks((prev) => ({ ...prev, [key]: value }))
   }
 
-  function resetForm() {
-    setProductId(""); setLot(""); setDluo(""); setTemp("")
+  function validateRequired() {
+    if (!supplierId) {
+      toast.error("Sélectionnez un fournisseur.")
+      return false
+    }
+    if (!productId) {
+      toast.error("Sélectionnez un produit.")
+      return false
+    }
+    if (!temp.trim()) {
+      toast.error("Saisissez la température de réception.")
+      return false
+    }
+    return true
   }
 
-  async function handleAddItem(e) {
-    e.preventDefault()
-    if (!selectedProduct || !lot || !dluo) return
+  function handleConfirmClick() {
+    if (!validateRequired()) return
+    if (!allChecksDone) {
+      setReserveDialogOpen(true)
+      return
+    }
+    submitReception({ withReserve: false })
+  }
+
+  async function submitReception({ withReserve }) {
     const token = loadEstablishmentToken()
     if (!token || !operator) return
 
-    const isCompliant = !outOfRange
-    const payload = {
-      product_id: productId,
-      lot_number: lot,
-      dluo,
-      measured_temperature:
-        selectedProduct.has_temperature_control && temp !== "" ? parseFloat(temp) : null,
-      is_compliant: isCompliant,
-      ...(selectedProduct.has_temperature_control && {
-        product_min_temp: selectedProduct.min_target_temperature,
-        product_max_temp: selectedProduct.max_target_temperature,
-      }),
-    }
+    const isCompliant = !withReserve && allChecksDone && isGlobalTempOk(temp)
 
     setSubmitting(true)
     try {
-      const item = await addReceptionItem(
+      const receivedAt = new Date().toISOString()
+      const session = await openReceptionSession(
+        token,
+        { pin: operator.pin, operatorId: operator.id },
+        {
+          supplierId,
+          receivedAt,
+          blPhoto,
+          truckConditionOk: withReserve ? false : checks.tempOk,
+          packagingIntegrityOk: withReserve ? false : checks.packagingOk,
+          cannedGoodsInspectedOk: withReserve ? false : checks.labelOk,
+        },
+      )
+
+      const today = new Date().toISOString().split("T")[0]
+      await addReceptionItem(
         token,
         { pin: operator.pin, operatorId: operator.id },
         session.id,
-        payload,
+        {
+          product_id: productId,
+          lot_number: lot.trim() || "SANS_LOT",
+          dluo: dluo || today,
+          measured_temperature: parseFloat(temp),
+          is_compliant: isCompliant,
+        },
       )
-      setItems((prev) => [...prev, { ...item, product_name: selectedProduct.name }])
-      resetForm()
-      if (!isCompliant) toast.warning("Non-conformité créée pour cet article.")
-      else toast.success("Article ajouté")
+
+      await closeReceptionSession(token, { pin: operator.pin, operatorId: operator.id }, session.id)
+
+      if (withReserve || !isCompliant) {
+        toast.warning("Réception enregistrée avec réserve — non-conformité créée.")
+      } else {
+        toast.success("Réception enregistrée.")
+      }
+      router.replace(KIOSK_PHASES.morning.route)
     } catch (err) {
       toast.error(String(err.message))
     } finally {
       setSubmitting(false)
+      setReserveDialogOpen(false)
     }
   }
 
-  async function handleClose() {
+  async function quickAddSupplier() {
+    const name = window.prompt("Nom du fournisseur")
+    if (!name?.trim()) return
     const token = loadEstablishmentToken()
-    if (!token || !operator) return
-    setClosing(true)
+    if (!token) return
     try {
-      await closeReceptionSession(token, { pin: operator.pin, operatorId: operator.id }, session.id)
-      toast.success("Réception clôturée")
-      router.replace("/operator")
+      const supplier = await createSupplier(token, { name: name.trim(), country: "France" })
+      setSuppliers((prev) => [...prev, supplier].sort((a, b) => a.name.localeCompare(b.name)))
+      setSupplierId(supplier.id)
+      toast.success("Fournisseur ajouté")
     } catch (err) {
       toast.error(String(err.message))
-      setClosing(false)
+    }
+  }
+
+  async function quickAddProduct() {
+    const name = window.prompt("Nom du produit")
+    if (!name?.trim() || !supplierId) return
+    const token = loadEstablishmentToken()
+    if (!token) return
+    try {
+      const product = await createProduct(token, {
+        name: name.trim(),
+        supplier_id: supplierId,
+        has_temperature_control: true,
+        min_target_temperature: -18,
+        max_target_temperature: 7,
+      })
+      setProducts((prev) => [...prev, product].sort((a, b) => a.name.localeCompare(b.name)))
+      setProductId(product.id)
+      toast.success("Produit ajouté")
+    } catch (err) {
+      toast.error(String(err.message))
     }
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Scan & Go</h1>
-          <p className="text-sm text-muted-foreground">
-            {session.received_at
-              ? new Date(session.received_at).toLocaleString("fr-FR", {
-                  day: "2-digit", month: "short", year: "numeric",
-                  hour: "2-digit", minute: "2-digit",
-                })
-              : "—"}{" "}
-            · {items.length} article{items.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <Badge variant="outline" className="gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-green-500" />
-          En cours
-        </Badge>
+    <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-5">
+      <div className="flex items-center justify-between gap-4">
+        <KioskBackButton href={KIOSK_PHASES.morning.route} />
+        <h1 className="text-[1.5rem] font-bold text-slate-900">Nouvelle réception</h1>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">Ajouter un produit</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAddItem} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="product">Produit</Label>
-              <div className="flex gap-2">
-                <select
-                  id="product"
-                  className="flex h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={productId}
-                  onChange={(e) => { setProductId(e.target.value); setTemp("") }}
-                  required
-                >
-                  <option value="">Choisir…</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.reference ? ` — ${p.reference}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => setAddProductOpen(true)}
-                  title="Ajouter un produit"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="lot">N° de lot</Label>
-                <Input id="lot" value={lot} onChange={(e) => setLot(e.target.value)} placeholder="LOT-123" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="dluo">DLUO</Label>
-                <Input id="dluo" type="date" value={dluo} min={TODAY_ISO}
-                  onChange={(e) => setDluo(e.target.value)} required />
-              </div>
-            </div>
-
-            {selectedProduct?.has_temperature_control && (
-              <div className="space-y-1.5">
-                <Label htmlFor="temp" className="flex items-center gap-1.5">
-                  <Thermometer className="h-3.5 w-3.5" />
-                  Température mesurée (°C)
-                  <span className="text-xs text-muted-foreground">
-                    [{selectedProduct.min_target_temperature} → {selectedProduct.max_target_temperature}]
-                  </span>
-                </Label>
-                <Input
-                  id="temp"
-                  type="number"
-                  step="0.1"
-                  value={temp}
-                  onChange={(e) => setTemp(e.target.value)}
-                  placeholder="ex. 4.2"
-                  className={outOfRange ? "border-destructive focus-visible:ring-destructive" : ""}
-                  required
-                />
-                {outOfRange && (
-                  <Alert variant="destructive" className="py-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription className="text-xs">
-                      Température hors normes — une non-conformité sera créée automatiquement.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              variant={outOfRange ? "destructive" : "default"}
-              className="w-full"
-              disabled={submitting}
+      <div className="space-y-4 rounded-xl border-2 border-slate-200 bg-white p-5">
+        <div className="space-y-2">
+          <Label className="text-[1.1rem]">
+            Fournisseur <span className="text-red-600">*</span>
+          </Label>
+          <div className="flex gap-2">
+            <select
+              className="flex h-12 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-[1.1rem]"
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
             >
-              {submitting ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <PackageCheck className="mr-2 h-4 w-4" />
-              )}
-              {outOfRange ? "Ajouter (non-conforme)" : "Ajouter l'article"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {items.length > 0 && (
-        <Card>
-          <CardContent className="pt-4">
-            <ul className="divide-y">
-              {items.map((item, idx) => (
-                <li key={item.id ?? idx} className="flex items-center gap-3 py-2.5">
-                  {item.is_compliant ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.product_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Lot {item.lot_number} · {item.dluo}
-                      {item.measured_temperature !== null && ` · ${item.measured_temperature}°C`}
-                    </p>
-                  </div>
-                  {!item.is_compliant && (
-                    <Badge variant="destructive" className="shrink-0 text-xs">NC</Badge>
-                  )}
-                </li>
+              <option value="">Sélectionner…</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
               ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+            </select>
+            <Button type="button" variant="outline" size="icon" className="h-12 w-12 shrink-0" onClick={quickAddSupplier}>
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
 
-      <Separator />
+        <div className="space-y-2">
+          <Label className="text-[1.1rem]">
+            Produit <span className="text-red-600">*</span>
+          </Label>
+          <div className="flex gap-2">
+            <select
+              className="flex h-12 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-[1.1rem]"
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              disabled={!supplierId}
+            >
+              <option value="">Sélectionner…</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-12 w-12 shrink-0"
+              onClick={quickAddProduct}
+              disabled={!supplierId}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
 
-      <Button className="w-full" size="lg" onClick={handleClose} disabled={closing || items.length === 0}>
-        {closing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
-        Terminer la livraison
-      </Button>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label className="text-[1.1rem]">N° de lot</Label>
+            <Input
+              className="h-12 text-[1.1rem]"
+              value={lot}
+              onChange={(e) => setLot(e.target.value)}
+              placeholder="Optionnel"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[1.1rem]">DLUO</Label>
+            <Input
+              type="date"
+              className="h-12 text-[1.1rem]"
+              value={dluo}
+              onChange={(e) => setDluo(e.target.value)}
+            />
+          </div>
+        </div>
 
-      <AddProductDialog
-        open={addProductOpen}
-        onClose={() => setAddProductOpen(false)}
-        onCreated={handleProductCreated}
-        supplierId={session.supplier_id}
-      />
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2 text-[1.1rem]">
+            <Thermometer className="h-5 w-5" />
+            Température (°C) <span className="text-red-600">*</span>
+          </Label>
+          <Input
+            type="number"
+            step="0.1"
+            className="h-12 text-[1.25rem] font-semibold tabular-nums"
+            value={temp}
+            onChange={(e) => setTemp(e.target.value)}
+            placeholder="ex. 3.5"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-[1.1rem]">Bon de livraison</Label>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-14 w-full text-[1.1rem]"
+            onClick={() => fileRef.current?.click()}
+          >
+            <Camera className="mr-2 h-5 w-5" />
+            {blPhoto ? blPhoto.name : "Photographier le bon de livraison"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => setBlPhoto(e.target.files?.[0] ?? null)}
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-slate-100 pt-4">
+          <p className="text-[1.15rem] font-bold text-slate-900">Check-list de conformité</p>
+          <div className="space-y-2">
+            {COMPLIANCE_CHECKS.map((item) => (
+              <ComplianceCheckRow
+                key={item.key}
+                item={item}
+                checked={checks[item.key]}
+                onChange={(v) => updateCheck(item.key, v)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <Button
+          className="h-14 w-full text-[1.2rem] font-semibold"
+          onClick={handleConfirmClick}
+          disabled={submitting}
+        >
+          {submitting && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
+          Enregistrer la réception
+        </Button>
+      </div>
+
+      <AlertDialog open={reserveDialogOpen} onOpenChange={setReserveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[1.25rem]">Check-list incomplète</AlertDialogTitle>
+            <AlertDialogDescription className="text-[1.05rem] leading-relaxed">
+              Tous les points de conformité ne sont pas validés. Que souhaitez-vous faire ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <AlertDialogCancel
+              className="h-12 w-full text-[1.1rem]"
+              onClick={() => toast.info("Réception refusée — aucun enregistrement.")}
+            >
+              Refuser la réception
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-12 w-full bg-amber-600 text-[1.1rem] hover:bg-amber-700"
+              onClick={() => submitReception({ withReserve: true })}
+            >
+              Accepter avec réserve
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
-}
-
-// ── Page root ─────────────────────────────────────────────────────────────────
-
-export default function ReceptionPage() {
-  const [session, setSession] = useState(null)
-  return session
-    ? <ScanAndGo session={session} />
-    : <SessionOpener onSessionOpened={setSession} />
 }

@@ -148,6 +148,7 @@ async def open_session(
     establishment: CurrentEstablishment,
     operator: Utilisateur,
     bl_photo: UploadFile | None,
+    lab_report_photo: UploadFile | None,
     s3: S3Service,
 ) -> ReceptionSessionResponse:
     """Open a new reception session for a supplier delivery.
@@ -174,6 +175,10 @@ async def open_session(
     if bl_photo is not None:
         bl_key = await s3.upload_image(bl_photo, prefix="bl-photos")
 
+    lab_key: str | None = None
+    if lab_report_photo is not None:
+        lab_key = await s3.upload_image(lab_report_photo, prefix="lab-reports")
+
     site_tz = ZoneInfo(establishment.timezone)
     received_at = (
         payload.received_at.replace(tzinfo=site_tz)
@@ -187,7 +192,10 @@ async def open_session(
         supplier_id=payload.supplier_id,
         received_at=received_at,
         bl_photo_s3_key=bl_key,
+        lab_report_s3_key=lab_key,
         truck_condition_ok=payload.truck_condition_ok,
+        packaging_integrity_ok=payload.packaging_integrity_ok,
+        canned_goods_inspected_ok=payload.canned_goods_inspected_ok,
         opened_at=now_for_site(establishment.timezone),
     )
     db.add(session)
@@ -199,7 +207,6 @@ async def open_session(
         session_id=str(session.id),
         supplier_id=str(session.supplier_id),
         has_bl_photo=bl_key is not None,
-        truck_condition_ok=payload.truck_condition_ok,
     )
     return _session_response(session, s3)
 
@@ -280,11 +287,9 @@ async def add_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
 
     is_compliant = payload.is_compliant
-    # Re-validate server-side — the tablet payload cannot be trusted blindly.
-    # 1. Packaging: any observed defect forces non-compliance.
-    if not payload.packaging_ok:
-        is_compliant = False
-    # 2. Cold chain: temperature out of range forces non-compliance.
+    # Re-validate cold-chain compliance server-side: the tablet may have sent
+    # is_compliant=True for a temperature-controlled product that is actually
+    # out of range (e.g. due to a UI bug or a manipulated request).
     if (
         product.has_temperature_control
         and payload.measured_temperature is not None
@@ -319,7 +324,6 @@ async def add_item(
         lot_number=payload.lot_number,
         dluo=payload.dluo,
         measured_temperature=payload.measured_temperature,
-        packaging_ok=payload.packaging_ok,
         is_compliant=is_compliant,
         nc_id=nc_id,
         scanned_at=now_for_site(establishment.timezone),
@@ -422,6 +426,9 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         ReceptionSessionResponse: The response DTO with optional photo URL.
     """
     bl_url = s3.object_url(session.bl_photo_s3_key) if s3 and session.bl_photo_s3_key else None
+    lab_url = (
+        s3.object_url(session.lab_report_s3_key) if s3 and session.lab_report_s3_key else None
+    )
     return ReceptionSessionResponse(
         id=session.id,
         establishment_id=session.establishment_id,
@@ -429,7 +436,10 @@ def _session_response(session: ReceptionSession, s3: S3Service | None) -> Recept
         supplier_id=session.supplier_id,
         received_at=session.received_at,
         bl_photo_url=bl_url,
+        lab_report_url=lab_url,
         truck_condition_ok=session.truck_condition_ok,
+        packaging_integrity_ok=session.packaging_integrity_ok,
+        canned_goods_inspected_ok=session.canned_goods_inspected_ok,
         status=session.status,
         opened_at=session.opened_at,
         closed_at=session.closed_at,
@@ -441,21 +451,7 @@ async def search_reception_items_by_lot(
     db: AsyncSession,
     establishment: CurrentEstablishment,
 ) -> list[ReceptionLotSearchItem]:
-    """Find reception lines matching a lot number for a sanitary recall.
-
-    Performs a case-insensitive partial match on ``lot_number`` across all
-    reception items for the establishment.  Results are ordered by delivery
-    date descending so the most recent match appears first.
-
-    Args:
-        lot_number (str): The lot/batch identifier to search (partial match).
-        db (AsyncSession): The async database session.
-        establishment (CurrentEstablishment): The authenticated establishment context.
-
-    Returns:
-        list[ReceptionLotSearchItem]: Matched items with session and product context,
-            up to 50 results.
-    """
+    """Find reception lines matching a lot number (sanitary recall)."""
     query = lot_number.strip()
     if not query:
         return []
@@ -481,7 +477,6 @@ async def search_reception_items_by_lot(
             product_id=item.product_id,
             product_name=product.name,
             received_at=session.received_at,
-            packaging_ok=item.packaging_ok,
             is_compliant=item.is_compliant,
         )
         for item, session, product in result.all()

@@ -12,14 +12,22 @@ export async function apiCall(path, options = {}) {
   const { body, headers = {}, ...rest } = options
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...rest,
-    body,
-    headers: {
-      ...(!isFormData && body ? { "Content-Type": "application/json" } : {}),
-      ...headers,
-    },
-  })
+  let response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...rest,
+      body,
+      headers: {
+        ...(!isFormData && body ? { "Content-Type": "application/json" } : {}),
+        ...headers,
+      },
+    })
+  } catch {
+    throw new ApiError(
+      0,
+      "Impossible de joindre le serveur. Vérifiez que l'API est démarrée et à jour.",
+    )
+  }
 
   const contentType = response.headers.get("content-type") ?? ""
   const payload = contentType.includes("application/json")

@@ -108,11 +108,22 @@ class CleaningTaskTemplateCreate(BaseModel):
         zone_id (UUID): The zone this task belongs to.
         name (str): Task display name (1–255 chars).
         description (str | None): Optional detailed instructions.
+        assigned_operator_id (UUID | None): Operator responsible for this task.
     """
 
     zone_id: UUID
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    assigned_operator_id: UUID | None = None
+
+
+class CleaningTaskTemplateUpdate(BaseModel):
+    """Partial update for a task template (manager assignment)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    assigned_operator_id: UUID | None = None
+    zone_id: UUID | None = None
 
 
 class CleaningTaskTemplateResponse(BaseModel):
@@ -124,6 +135,7 @@ class CleaningTaskTemplateResponse(BaseModel):
         zone_id (UUID): Associated zone.
         name (str): Task display name.
         description (str | None): Optional instructions.
+        assigned_operator_id (UUID | None): Assigned operator.
     """
 
     model_config = {"from_attributes": True}
@@ -132,6 +144,7 @@ class CleaningTaskTemplateResponse(BaseModel):
     zone_id: UUID
     name: str
     description: str | None
+    assigned_operator_id: UUID | None = None
 
 
 class CleaningLogResponse(BaseModel):
@@ -165,6 +178,8 @@ class TaskTodoItem(BaseModel):
         task_id (UUID): Task template primary key.
         name (str): Task display name.
         description (str | None): Optional instructions.
+        assigned_operator_id (UUID | None): Operator assigned by the chef.
+        assigned_operator_name (str | None): Display name of the assignee.
         log (CleaningLogResponse | None): Today's latest log for this task,
             or ``None`` if the task has not yet been executed today.
     """
@@ -172,6 +187,8 @@ class TaskTodoItem(BaseModel):
     task_id: UUID
     name: str
     description: str | None
+    assigned_operator_id: UUID | None = None
+    assigned_operator_name: str | None = None
     log: CleaningLogResponse | None = None
 
 

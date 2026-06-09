@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentEstablishment
 from app.core.metrics import CLEANING_LOGS_TOTAL
+from app.modules.personnel.models import AffectationSite, Utilisateur
 from app.core.time_utils import now_for_site
 from app.modules.cleaning.models import (
     CleaningLog,
@@ -50,6 +51,7 @@ from app.modules.cleaning.schemas import (
     CleaningRoutineResponse,
     CleaningTaskTemplateCreate,
     CleaningTaskTemplateResponse,
+    CleaningTaskTemplateUpdate,
     CleaningZoneCreate,
     CleaningZoneListResponse,
     CleaningZoneResponse,
@@ -212,13 +214,41 @@ async def create_task_template(
     """
     await _get_routine(db, establishment, routine_id)
     await _get_zone(db, establishment, payload.zone_id)
+    if payload.assigned_operator_id is not None:
+        await _validate_operator(db, establishment, payload.assigned_operator_id)
     task = CleaningTaskTemplate(
         routine_id=routine_id,
         zone_id=payload.zone_id,
         name=payload.name,
         description=payload.description,
+        assigned_operator_id=payload.assigned_operator_id,
     )
     db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    return CleaningTaskTemplateResponse.model_validate(task)
+
+
+async def update_task_template(
+    task_id: UUID,
+    payload: CleaningTaskTemplateUpdate,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> CleaningTaskTemplateResponse:
+    task = await _get_task(db, establishment, task_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if "zone_id" in updates and updates["zone_id"] is not None:
+        await _get_zone(db, establishment, updates["zone_id"])
+        task.zone_id = updates["zone_id"]
+    if "name" in updates and updates["name"] is not None:
+        task.name = updates["name"]
+    if "description" in updates:
+        task.description = updates["description"]
+    if "assigned_operator_id" in updates:
+        aid = updates["assigned_operator_id"]
+        if aid is not None:
+            await _validate_operator(db, establishment, aid)
+        task.assigned_operator_id = aid
     await db.commit()
     await db.refresh(task)
     return CleaningTaskTemplateResponse.model_validate(task)
@@ -469,6 +499,12 @@ async def _build_routine_todo(
     )
     zones_by_id: dict[UUID, CleaningZone] = {z.id: z for z in zones_result.scalars().all()}
 
+    assignee_ids = list({t.assigned_operator_id for t in templates if t.assigned_operator_id})
+    operators_by_id: dict[UUID, Utilisateur] = {}
+    if assignee_ids:
+        ops_result = await db.execute(select(Utilisateur).where(Utilisateur.id.in_(assignee_ids)))
+        operators_by_id = {u.id: u for u in ops_result.scalars().all()}
+
     tasks_by_zone: dict[UUID, list[CleaningTaskTemplate]] = defaultdict(list)
     for t in templates:
         tasks_by_zone[t.zone_id].append(t)
@@ -476,17 +512,24 @@ async def _build_routine_todo(
     zone_items = []
     for zone_id in sorted(tasks_by_zone, key=lambda zid: zones_by_id[zid].name):
         zone = zones_by_id[zone_id]
-        task_items = [
-            TaskTodoItem(
-                task_id=t.id,
-                name=t.name,
-                description=t.description,
-                log=CleaningLogResponse.model_validate(latest_log[t.id])
-                if t.id in latest_log
-                else None,
+        task_items = []
+        for t in tasks_by_zone[zone_id]:
+            assignee = operators_by_id.get(t.assigned_operator_id) if t.assigned_operator_id else None
+            assignee_name = None
+            if assignee:
+                assignee_name = f"{assignee.prenom} {assignee.nom}".strip()
+            task_items.append(
+                TaskTodoItem(
+                    task_id=t.id,
+                    name=t.name,
+                    description=t.description,
+                    assigned_operator_id=t.assigned_operator_id,
+                    assigned_operator_name=assignee_name,
+                    log=CleaningLogResponse.model_validate(latest_log[t.id])
+                    if t.id in latest_log
+                    else None,
+                )
             )
-            for t in tasks_by_zone[zone_id]
-        ]
         zone_items.append(ZoneTodoItem(zone_id=zone.id, zone_name=zone.name, tasks=task_items))
 
     return RoutineTodoResponse(
@@ -495,6 +538,25 @@ async def _build_routine_todo(
         schedule_type=routine.schedule_type,
         zones=zone_items,
     )
+
+
+async def _validate_operator(
+    db: AsyncSession, establishment: CurrentEstablishment, operator_id: UUID
+) -> Utilisateur:
+    result = await db.execute(
+        select(Utilisateur)
+        .join(AffectationSite, AffectationSite.utilisateur_id == Utilisateur.id)
+        .where(
+            Utilisateur.id == operator_id,
+            AffectationSite.etablissement_id == establishment.etablissement_id,
+            AffectationSite.is_active.is_(True),
+            Utilisateur.deleted_at.is_(None),
+        )
+    )
+    operator = result.scalar_one_or_none()
+    if operator is None:
+        raise HTTPException(status_code=404, detail="Opérateur introuvable.")
+    return operator
 
 
 async def _get_zone(

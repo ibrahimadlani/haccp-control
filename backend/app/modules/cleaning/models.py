@@ -171,6 +171,12 @@ class CleaningTaskTemplate(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("utilisateurs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     routine: Mapped[CleaningRoutine] = relationship(
         "CleaningRoutine", back_populates="task_templates", lazy="noload"

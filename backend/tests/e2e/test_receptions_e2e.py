@@ -1,15 +1,13 @@
 """E2E tests for the Receptions domain."""
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
-from app.modules.catalog.models import Supplier, SupplierCountry, SupplierStatus
-from app.modules.catalog.models import Product
+from app.modules.catalog.models import Product, Supplier, SupplierCountry, SupplierStatus
 from app.modules.personnel.models import AffectationSite, Role, Utilisateur
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 
@@ -39,19 +37,23 @@ async def seed_receptions(test_db: AsyncSession) -> ReceptionSeed:
     await test_db.flush()
 
     est = Etablissement(organisation_id=org.id, nom_site="Reception Site", timezone="Europe/Paris")
-    manager_role = Role(nom_role="MANAGER_REC", permissions={"manager": True, "can_manage_device_login": True})
+    manager_role = Role(
+        nom_role="MANAGER_REC", permissions={"manager": True, "can_manage_device_login": True}
+    )
     operator_role = Role(nom_role="OPERATEUR_REC", permissions={})
     test_db.add_all([est, manager_role, operator_role])
     await test_db.flush()
 
     manager = Utilisateur(
-        nom="Rec", prenom="Manager",
+        nom="Rec",
+        prenom="Manager",
         email=manager_email,
         mot_de_passe_hash=get_password_hash("RecPass123!"),
         code_pin=get_password_hash("1111"),
     )
     operator = Utilisateur(
-        nom="Rec", prenom="Operator",
+        nom="Rec",
+        prenom="Operator",
         email="reception.operator@test.com",
         mot_de_passe_hash=get_password_hash("RecOpPass123!"),
         code_pin=get_password_hash("3333"),
@@ -59,10 +61,16 @@ async def seed_receptions(test_db: AsyncSession) -> ReceptionSeed:
     test_db.add_all([manager, operator])
     await test_db.flush()
 
-    test_db.add_all([
-        AffectationSite(utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id),
-        AffectationSite(utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id),
-    ])
+    test_db.add_all(
+        [
+            AffectationSite(
+                utilisateur_id=manager.id, etablissement_id=est.id, role_id=manager_role.id
+            ),
+            AffectationSite(
+                utilisateur_id=operator.id, etablissement_id=est.id, role_id=operator_role.id
+            ),
+        ]
+    )
 
     supplier = Supplier(
         establishment_id=est.id,
@@ -94,6 +102,13 @@ async def seed_receptions(test_db: AsyncSession) -> ReceptionSeed:
     )
 
 
+_RECEPTION_CHECKLIST = {
+    "truck_condition_ok": "true",
+    "packaging_integrity_ok": "true",
+    "canned_goods_inspected_ok": "true",
+}
+
+
 async def _login(client: AsyncClient, seed: ReceptionSeed) -> str:
     resp = await client.post(
         "/api/v1/establishment-sessions",
@@ -120,6 +135,7 @@ async def test_open_reception_session(client: AsyncClient, seed_receptions: Rece
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -142,6 +158,7 @@ async def test_add_reception_item(client: AsyncClient, seed_receptions: Receptio
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -174,6 +191,7 @@ async def test_get_reception_session_detail(client: AsyncClient, seed_receptions
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers,
     )
@@ -200,6 +218,7 @@ async def test_close_reception_session(client: AsyncClient, seed_receptions: Rec
         data={
             "supplier_id": str(seed_receptions.supplier.id),
             "received_at": "2024-06-01T10:00:00",
+            **_RECEPTION_CHECKLIST,
         },
         headers=headers_with_pin,
     )

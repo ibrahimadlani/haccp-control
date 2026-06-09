@@ -1,340 +1,290 @@
 "use client"
 
-import { useEffect, useReducer, useState } from "react"
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  SprayCan,
-} from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { CheckCircle2, Loader2, User } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { KioskBackButton } from "@/components/kiosk/KioskBackButton"
+import { KioskProgressBar } from "@/components/kiosk/KioskProgressBar"
+import {
+  backRouteForSchedule,
+  CLEANING_SCHEDULES,
+  parseScheduleParam,
+} from "@/lib/kiosk/cleaningSchedule"
 import { fetchCurrentRoutine, submitBulkCleaning } from "@/lib/api/cleaning"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 import { loadEstablishmentToken } from "@/lib/session/establishment"
+import { cn } from "@/lib/utils"
 
-const SCHEDULE_LABELS = {
-  OPENING: "Ouverture",
-  CLOSING: "Fermeture",
-  WEEKLY: "Hebdomadaire",
-  MONTHLY: "Mensuel",
-}
+function CleaningTaskCard({ task, operatorId, onDone, submittingId, issueTask, onIssueSubmit }) {
+  const isDone = Boolean(task.log)
+  const isMine =
+    !task.assigned_operator_id || task.assigned_operator_id === operatorId
+  const isSubmitting = submittingId === task.task_id
 
-// ── Per-task state ────────────────────────────────────────────────────────────
-// taskStates: { [task_id]: { status: "DONE"|"ISSUE"|null, comment: "" } }
-
-function taskReducer(state, action) {
-  switch (action.type) {
-    case "SET_STATUS":
-      return {
-        ...state,
-        [action.taskId]: { ...state[action.taskId], status: action.status, comment: state[action.taskId]?.comment ?? "" },
-      }
-    case "SET_COMMENT":
-      return {
-        ...state,
-        [action.taskId]: { ...state[action.taskId], comment: action.comment },
-      }
-    case "RESET_ZONE":
-      return Object.fromEntries(
-        Object.entries(state).filter(([id]) => !action.taskIds.includes(id))
-      )
-    default:
-      return state
-  }
-}
-
-// ── ZoneCard ──────────────────────────────────────────────────────────────────
-
-function ZoneCard({ zone, onZoneSubmitted }) {
-  const { operator } = useOperator()
-  const [open, setOpen] = useState(false)
-  const [taskStates, dispatch] = useReducer(taskReducer, {})
-  const [submitting, setSubmitting] = useState(false)
-  const [done, setDone] = useState(() => zone.tasks.every((t) => t.log !== null))
-
-  // Pre-fill from existing today logs
-  useEffect(() => {
-    zone.tasks.forEach((task) => {
-      if (task.log) {
-        dispatch({ type: "SET_STATUS", taskId: task.task_id, status: task.log.status })
-        if (task.log.comment) {
-          dispatch({ type: "SET_COMMENT", taskId: task.task_id, comment: task.log.comment })
-        }
-      }
-    })
-  }, [zone])
-
-  async function submitItems(items) {
-    const token = loadEstablishmentToken()
-    if (!token || !operator) return false
-    setSubmitting(true)
-    try {
-      await submitBulkCleaning(token, { pin: operator.pin, operatorId: operator.id }, items)
-      return true
-    } catch (err) {
-      toast.error(String(err.message))
-      return false
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handleFastPath() {
-    const items = zone.tasks.map((t) => ({ task_id: t.task_id, status: "DONE", comment: null }))
-    const ok = await submitItems(items)
-    if (ok) {
-      toast.success(`Zone "${zone.zone_name}" validée`)
-      setDone(true)
-      onZoneSubmitted(zone.zone_id)
-    }
-  }
-
-  async function handleSubmitZone() {
-    // Validate: ISSUE tasks must have a comment
-    for (const task of zone.tasks) {
-      const ts = taskStates[task.task_id]
-      if (!ts?.status) {
-        toast.error(`Toutes les tâches doivent être renseignées (zone : ${zone.zone_name})`)
-        return
-      }
-      if (ts.status === "ISSUE" && !ts.comment?.trim()) {
-        toast.error(`Un commentaire est requis pour les tâches en anomalie`)
-        return
-      }
-    }
-    const items = zone.tasks.map((t) => ({
-      task_id: t.task_id,
-      status: taskStates[t.task_id].status,
-      comment: taskStates[t.task_id].comment?.trim() || null,
-    }))
-    const ok = await submitItems(items)
-    if (ok) {
-      toast.success(`Zone "${zone.zone_name}" enregistrée`)
-      setDone(true)
-      onZoneSubmitted(zone.zone_id)
-    }
-  }
-
-  const allFilled = zone.tasks.every((t) => taskStates[t.task_id]?.status)
-
-  if (done) {
+  if (isDone) {
     return (
-      <Card className="border-emerald-200 bg-emerald-50/50">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-            <CardTitle className="text-base text-emerald-800">{zone.zone_name}</CardTitle>
-            <Badge variant="outline" className="ml-auto border-emerald-300 text-emerald-700 text-xs">
-              Validée
-            </Badge>
-          </div>
-        </CardHeader>
-      </Card>
+      <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-slate-900">{task.name}</p>
+          <p className="text-[0.95rem] text-emerald-800">Effectué aujourd&apos;hui</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (issueTask?.task_id === task.task_id) {
+    return (
+      <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
+        <p className="mb-2 font-semibold text-red-900">{task.name} — anomalie</p>
+        <Textarea
+          value={issueTask.comment}
+          onChange={(e) => onIssueSubmit({ ...issueTask, comment: e.target.value })}
+          placeholder="Décrivez le problème…"
+          className="mb-3 min-h-20 text-[1rem]"
+        />
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => onIssueSubmit(null)}
+            disabled={isSubmitting}
+          >
+            Annuler
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1"
+            onClick={() => onDone(task.task_id, "ISSUE", issueTask.comment)}
+            disabled={isSubmitting || !issueTask.comment?.trim()}
+          >
+            Enregistrer
+          </Button>
+        </div>
+      </div>
     )
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <SprayCan className="h-5 w-5 text-primary" />
-          <CardTitle className="text-base">{zone.zone_name}</CardTitle>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {zone.tasks.length} tâche{zone.tasks.length > 1 ? "s" : ""}
-          </span>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-3 pt-0">
-        {/* Fast-path */}
-        <Button
-          className="h-12 w-full gap-2 text-sm font-semibold"
-          onClick={handleFastPath}
-          disabled={submitting}
-        >
-          {submitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4" />
+    <div
+      className={cn(
+        "rounded-lg border px-4 py-3",
+        isMine ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/80",
+      )}
+    >
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[1.1rem] font-semibold text-slate-900">{task.name}</p>
+          {task.description && (
+            <p className="mt-1 text-[0.95rem] leading-relaxed text-slate-600">{task.description}</p>
           )}
-          Valider toute la zone
-        </Button>
-
-        {/* Accordion */}
-        <button
-          type="button"
-          className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span>Détail des tâches</span>
-          {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
-
-        {open && (
-          <div className="space-y-4 pt-1">
-            {zone.tasks.map((task) => {
-              const ts = taskStates[task.task_id] ?? {}
-              const isIssue = ts.status === "ISSUE"
-              const isDone = ts.status === "DONE"
-              const hasExistingLog = task.log !== null
-
-              return (
-                <div key={task.task_id} className="rounded-lg border p-3 space-y-2">
-                  <div>
-                    <p className="text-sm font-medium">{task.name}</p>
-                    {task.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>
-                    )}
-                    {hasExistingLog && (
-                      <Badge variant="outline" className="mt-1 text-xs">
-                        Déjà enregistré aujourd'hui
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant={isDone ? "default" : "outline"}
-                      className={`flex-1 ${isDone ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-                      onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "DONE" })}
-                      disabled={submitting}
-                    >
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Fait
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isIssue ? "destructive" : "outline"}
-                      className="flex-1"
-                      onClick={() => dispatch({ type: "SET_STATUS", taskId: task.task_id, status: "ISSUE" })}
-                      disabled={submitting}
-                    >
-                      <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                      Anomalie
-                    </Button>
-                  </div>
-
-                  {isIssue && (
-                    <Textarea
-                      placeholder="Décrivez l'anomalie (obligatoire)…"
-                      value={ts.comment ?? ""}
-                      onChange={(e) =>
-                        dispatch({ type: "SET_COMMENT", taskId: task.task_id, comment: e.target.value })
-                      }
-                      className="text-sm resize-none"
-                      rows={2}
-                      disabled={submitting}
-                    />
-                  )}
-                </div>
-              )
-            })}
-
-            <Button
-              className="w-full"
-              variant="outline"
-              onClick={handleSubmitZone}
-              disabled={!allFilled || submitting}
-            >
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Enregistrer la zone
-            </Button>
-          </div>
+        </div>
+        {task.assigned_operator_name && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-[0.85rem] font-medium text-violet-900">
+            <User className="h-3.5 w-3.5" />
+            {task.assigned_operator_name}
+          </span>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {!isMine && (
+        <p className="mb-2 text-[0.9rem] text-slate-500">Tâche assignée à un autre collègue</p>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          className="h-11 flex-1 text-[1rem] font-semibold"
+          onClick={() => onDone(task.task_id, "DONE")}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fait"}
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 flex-1 text-[1rem] font-semibold text-red-700"
+          onClick={() => onIssueSubmit({ task_id: task.task_id, comment: "" })}
+          disabled={isSubmitting}
+        >
+          Anomalie
+        </Button>
+      </div>
+    </div>
   )
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 export default function CleaningPage() {
+  const searchParams = useSearchParams()
+  const { operator } = useOperator()
+  const initialSchedule = parseScheduleParam(searchParams.get("schedule"))
+  const [schedule, setSchedule] = useState(initialSchedule)
+  const [filter, setFilter] = useState("mine")
   const [routine, setRoutine] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [submittedZones, setSubmittedZones] = useState(new Set())
+  const [submittingId, setSubmittingId] = useState(null)
+  const [issueTask, setIssueTask] = useState(null)
 
   useEffect(() => {
     const token = loadEstablishmentToken()
     if (!token) return
-    fetchCurrentRoutine(token)
+    setLoading(true)
+    setError(null)
+    fetchCurrentRoutine(token, schedule)
       .then(setRoutine)
       .catch((err) => setError(String(err.message)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [schedule])
 
-  function handleZoneSubmitted(zoneId) {
-    setSubmittedZones((prev) => new Set([...prev, zoneId]))
+  const visibleZones = useMemo(() => {
+    if (!routine?.zones) return []
+    if (filter !== "mine" || !operator?.id) return routine.zones
+    return routine.zones
+      .map((zone) => ({
+        ...zone,
+        tasks: zone.tasks.filter(
+          (t) => !t.assigned_operator_id || t.assigned_operator_id === operator.id,
+        ),
+      }))
+      .filter((z) => z.tasks.length > 0)
+  }, [routine, filter, operator?.id])
+
+  const { totalTasks, doneTasks } = useMemo(() => {
+    let total = 0
+    let done = 0
+    for (const zone of visibleZones) {
+      for (const task of zone.tasks) {
+        total += 1
+        if (task.log) done += 1
+      }
+    }
+    return { totalTasks: total, doneTasks: done }
+  }, [visibleZones])
+
+  async function handleTaskDone(taskId, status, comment = null) {
+    const token = loadEstablishmentToken()
+    if (!token || !operator) return
+    setSubmittingId(taskId)
+    try {
+      await submitBulkCleaning(token, { pin: operator.pin, operatorId: operator.id }, [
+        { task_id: taskId, status, comment: comment?.trim() || null },
+      ])
+      toast.success(status === "DONE" ? "Tâche validée" : "Anomalie enregistrée")
+      setIssueTask(null)
+      const refreshed = await fetchCurrentRoutine(token, schedule)
+      setRoutine(refreshed)
+    } catch (err) {
+      toast.error(String(err.message))
+    } finally {
+      setSubmittingId(null)
+    }
   }
 
-  const pendingCount = routine
-    ? routine.zones.filter((z) => !submittedZones.has(z.zone_id) && !z.tasks.every((t) => t.log)).length
-    : 0
-  const allDone = routine && pendingCount === 0
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="mx-auto max-w-lg">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
-
-  if (!routine) return null
+  const activeSchedule = CLEANING_SCHEDULES.find((s) => s.value === schedule)
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      {/* Header */}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold">{routine.routine_name}</h1>
-          <Badge variant="secondary">{SCHEDULE_LABELS[routine.schedule_type] ?? routine.schedule_type}</Badge>
+    <div className="flex flex-1 flex-col gap-4">
+      <div className="flex items-center justify-between gap-4">
+        <KioskBackButton href={backRouteForSchedule(schedule)} />
+        <div className="text-right">
+          <p className="text-[0.95rem] font-semibold uppercase tracking-wide text-violet-700">
+            Hygiène
+          </p>
+          <h1 className="text-[1.5rem] font-bold text-slate-900">Plan de nettoyage</h1>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {routine.zones.length} zone{routine.zones.length > 1 ? "s" : ""} ·{" "}
-          {allDone ? (
-            <span className="font-medium text-emerald-600">Toutes les zones validées ✓</span>
-          ) : (
-            <span>{pendingCount} zone{pendingCount > 1 ? "s" : ""} restante{pendingCount > 1 ? "s" : ""}</span>
-          )}
-        </p>
       </div>
 
-      {routine.zones.length === 0 ? (
-        <Alert>
-          <AlertDescription>
-            Aucune zone configurée pour cette routine. Contactez votre manager.
-          </AlertDescription>
+      <div className="flex flex-wrap gap-2">
+        {CLEANING_SCHEDULES.map((s) => (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => setSchedule(s.value)}
+            className={cn(
+              "rounded-lg border-2 px-3 py-2 text-left text-[0.95rem] font-semibold",
+              schedule === s.value
+                ? "border-violet-500 bg-violet-50 text-violet-900"
+                : "border-slate-200 bg-white text-slate-700",
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSchedule && (
+        <p className="text-[1rem] text-slate-600">{activeSchedule.hint}</p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setFilter("mine")}
+          className={cn(
+            "rounded-full px-4 py-1.5 text-[0.95rem] font-semibold",
+            filter === "mine" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+          )}
+        >
+          Mes tâches
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter("all")}
+          className={cn(
+            "rounded-full px-4 py-1.5 text-[0.95rem] font-semibold",
+            filter === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+          )}
+        >
+          Toutes
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : (
-        <div className="space-y-4">
-          {routine.zones.map((zone) => (
-            <ZoneCard
-              key={zone.zone_id}
-              zone={zone}
-              onZoneSubmitted={handleZoneSubmitted}
-            />
-          ))}
-        </div>
+        <>
+          <KioskProgressBar done={doneTasks} total={totalTasks} />
+
+          {visibleZones.length === 0 ? (
+            <p className="py-8 text-center text-[1.05rem] text-slate-600">
+              {filter === "mine"
+                ? "Aucune tâche ne vous est assignée pour ce créneau."
+                : "Aucune tâche configurée pour ce créneau."}
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {visibleZones.map((zone) => (
+                <section key={zone.zone_id}>
+                  <h2 className="mb-2 border-b border-slate-200 pb-1 text-[1.05rem] font-bold uppercase tracking-wide text-slate-700">
+                    {zone.zone_name}
+                  </h2>
+                  <div className="space-y-2">
+                    {zone.tasks.map((task) => (
+                      <CleaningTaskCard
+                        key={task.task_id}
+                        task={task}
+                        operatorId={operator?.id}
+                        submittingId={submittingId}
+                        issueTask={issueTask}
+                        onIssueSubmit={setIssueTask}
+                        onDone={handleTaskDone}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -58,6 +58,14 @@ export function createCleaningTask(token, routineId, body) {
   })
 }
 
+export function updateCleaningTask(token, taskId, body) {
+  return apiCall(`/api/v1/cleaning-tasks/${taskId}`, {
+    method: "PATCH",
+    headers: bearerHeaders(token),
+    body: JSON.stringify(body),
+  })
+}
+
 export function deleteCleaningTask(token, taskId) {
   return apiCall(`/api/v1/cleaning-tasks/${taskId}`, {
     method: "DELETE",

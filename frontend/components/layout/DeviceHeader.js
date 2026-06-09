@@ -75,7 +75,7 @@ export function DeviceHeader() {
     <header className="border-b bg-background">
       <div className="relative flex h-14 items-center gap-3 px-4">
         <Thermometer className="h-5 w-5 text-primary" />
-        <span className="font-semibold">HACCP</span>
+        <span className="font-semibold">smartHACCP</span>
 
         <span className="absolute left-1/2 -translate-x-1/2 text-sm font-medium">{siteName}</span>
 
