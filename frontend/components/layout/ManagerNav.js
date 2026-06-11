@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, Settings2, Users, AlertTriangle, Truck, SprayCan, SlidersHorizontal, ShoppingBasket } from "lucide-react"
+import { BarChart3, Settings2, Users, AlertTriangle, Truck, SprayCan, SlidersHorizontal, ShoppingBasket, ChefHat } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: "/manager/products", label: "Catalogue", icon: ShoppingBasket },
   { href: "/manager/nonconformities", label: "Non-conformités", icon: AlertTriangle },
   { href: "/manager/cleaning", label: "Plan sanitaire", icon: SprayCan },
+  { href: "/manager/production", label: "Production", icon: ChefHat },
   { href: "/manager/settings", label: "Paramètres", icon: SlidersHorizontal },
 ]
 
