@@ -8,6 +8,7 @@ boundary via the ``test_db`` fixture from the root conftest.
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,19 @@ from app.modules.cleaning.models import (
 )
 from app.modules.equipments.models import Equipement, TypeEquipement
 from app.modules.personnel.models import AffectationSite, Role, Utilisateur
+from app.modules.production.models import (
+    BatchStatut,
+    FoodType,
+    ProductionBatch,
+    ProductionBatchIngredient,
+)
+from app.modules.receptions.models import (
+    LotOuverture,
+    ReceptionItem,
+    ReceptionSession,
+    ReceptionStatus,
+    StatutOuverture,
+)
 from app.modules.tenant.models import Etablissement, Organisation, TypeSecteur
 
 # ── Core tenant factories ─────────────────────────────────────────────────────
@@ -180,6 +194,136 @@ async def make_product(
     db.add(product)
     await db.flush()
     return product
+
+
+# ── Reception factories ───────────────────────────────────────────────────────
+
+
+async def make_reception_session(
+    db: AsyncSession,
+    est: Etablissement,
+    operator: Utilisateur,
+    supplier: Supplier,
+    *,
+    status: ReceptionStatus = ReceptionStatus.OPEN,
+) -> ReceptionSession:
+    session = ReceptionSession(
+        establishment_id=est.id,
+        operator_id=operator.id,
+        supplier_id=supplier.id,
+        received_at=datetime.now(UTC),
+        truck_condition_ok=True,
+        status=status,
+        opened_at=datetime.now(UTC),
+    )
+    db.add(session)
+    await db.flush()
+    return session
+
+
+async def make_reception_item(
+    db: AsyncSession,
+    session: ReceptionSession,
+    product: Product,
+    *,
+    lot_number: str | None = None,
+    dluo: date | None = None,
+    is_surgele: bool = False,
+    is_compliant: bool = True,
+) -> ReceptionItem:
+    if lot_number is None:
+        lot_number = f"LOT-{uuid.uuid4().hex[:8].upper()}"
+    if dluo is None:
+        dluo = (datetime.now(UTC) + timedelta(days=30)).date()
+    item = ReceptionItem(
+        session_id=session.id,
+        product_id=product.id,
+        lot_number=lot_number,
+        dluo=dluo,
+        packaging_ok=True,
+        is_compliant=is_compliant,
+        is_surgele=is_surgele,
+        scanned_at=datetime.now(UTC),
+    )
+    db.add(item)
+    await db.flush()
+    return item
+
+
+async def make_lot_ouverture(
+    db: AsyncSession,
+    est: Etablissement,
+    item: ReceptionItem,
+    operator: Utilisateur,
+    *,
+    duree_jours: int = 3,
+    statut: StatutOuverture = StatutOuverture.OUVERT,
+) -> LotOuverture:
+    from app.modules.receptions.service import calculate_dlc_secondaire
+
+    today = datetime.now(UTC).date()
+    dlc_secondaire = calculate_dlc_secondaire(today, item.dluo, duree_jours)
+    ouverture = LotOuverture(
+        establishment_id=est.id,
+        reception_item_id=item.id,
+        operator_id=operator.id,
+        ouvert_at=datetime.now(UTC),
+        dluo_primaire=item.dluo,
+        duree_apres_ouverture_jours=duree_jours,
+        dlc_secondaire_calculee=dlc_secondaire,
+        was_frozen=item.is_surgele,
+        statut=statut,
+    )
+    db.add(ouverture)
+    await db.flush()
+    return ouverture
+
+
+# ── Production factories ──────────────────────────────────────────────────────
+
+
+async def make_production_batch(
+    db: AsyncSession,
+    est: Etablissement,
+    *,
+    nom_recette: str | None = None,
+    food_type: FoodType = FoodType.AUTRE,
+    operator: Utilisateur | None = None,
+) -> ProductionBatch:
+    if nom_recette is None:
+        nom_recette = f"Recette {uuid.uuid4().hex[:6]}"
+    batch = ProductionBatch(
+        etablissement_id=est.id,
+        nom_recette=nom_recette,
+        food_type=food_type,
+        date_production=datetime.now(UTC).date(),
+        statut=BatchStatut.EN_COURS,
+        created_by_id=operator.id if operator else None,
+    )
+    db.add(batch)
+    await db.flush()
+    return batch
+
+
+async def make_production_batch_ingredient(
+    db: AsyncSession,
+    batch: ProductionBatch,
+    item: ReceptionItem,
+    operator: Utilisateur,
+    *,
+    quantity_used: Decimal = Decimal("1.000"),
+    unit: str = "kg",
+) -> ProductionBatchIngredient:
+    ingredient = ProductionBatchIngredient(
+        batch_id=batch.id,
+        reception_item_id=item.id,
+        operator_id=operator.id,
+        quantity_used=quantity_used,
+        unit=unit,
+    )
+    db.add(ingredient)
+    await db.flush()
+    return ingredient
 
 
 # ── Cleaning factories ────────────────────────────────────────────────────────

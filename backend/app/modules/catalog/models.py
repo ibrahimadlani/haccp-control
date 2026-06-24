@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, true
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, true
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -198,6 +198,7 @@ class Product(TimestampMixin, Base):
     )
     min_temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shelf_life_after_opening_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )

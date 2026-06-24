@@ -1,5 +1,6 @@
 """Business logic for the Production domain."""
 
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -12,25 +13,32 @@ from app.modules.production.models import (
     BatchStatut,
     FoodType,
     ProductionBatch,
+    ProductionBatchIngredient,
     ProductionStep,
     StepType,
 )
 from app.modules.production.schemas import (
     ProductionBatchCreate,
+    ProductionBatchIngredientCreate,
+    ProductionBatchIngredientListResponse,
+    ProductionBatchIngredientResponse,
     ProductionBatchListResponse,
     ProductionBatchResponse,
     ProductionStepCreate,
     ProductionStepListResponse,
     ProductionStepResponse,
 )
+from app.modules.receptions.models import LotOuverture, ReceptionItem, StatutOuverture
 
-COOKING_TARGETS: dict[FoodType, float] = {
-    FoodType.VOLAILLE: 74.0,
-    FoodType.VIANDE_HACHEE: 65.0,
-    FoodType.POISSON: 65.0,
-    FoodType.VIANDE_PIECE: 55.0,
-    FoodType.LEGUMES_FECULENTS: 63.0,
-    FoodType.AUTRE: 63.0,
+# Use Decimal throughout so threshold comparisons are exact (IEEE 754 floats
+# can represent 74.0 as 73.9999…, silently triggering a false non-conformity).
+COOKING_TARGETS: dict[FoodType, Decimal] = {
+    FoodType.VOLAILLE: Decimal("74.0"),
+    FoodType.VIANDE_HACHEE: Decimal("65.0"),
+    FoodType.POISSON: Decimal("65.0"),
+    FoodType.VIANDE_PIECE: Decimal("55.0"),
+    FoodType.LEGUMES_FECULENTS: Decimal("63.0"),
+    FoodType.AUTRE: Decimal("63.0"),
 }
 
 FOOD_TYPE_LABELS: dict[FoodType, str] = {
@@ -43,7 +51,7 @@ FOOD_TYPE_LABELS: dict[FoodType, str] = {
 }
 
 MAX_RAPID_COOLING_MINUTES = 120
-MAX_RAPID_COOLING_TEMP_C = 10.0
+MAX_RAPID_COOLING_TEMP_C = Decimal("10.0")
 
 
 async def _get_batch_in_scope(
@@ -140,6 +148,57 @@ async def _check_refroidissement_rule(
     )
 
 
+async def _check_no_refreeze_rule(
+    batch_id: UUID,
+    db: AsyncSession,
+) -> None:
+    """Refuse a cooling step if any linked ingredient was frozen but never cooked.
+
+    An ingredient that arrived frozen (``LotOuverture.was_frozen``) and was
+    opened (``StatutOuverture.OUVERT`` or any closed state) must have undergone
+    a ``CUISSON_A_COEUR`` step in the same batch before it can be cooled again.
+    Re-freezing without cooking is prohibited by French food-safety regulations.
+
+    Args:
+        batch_id (UUID): The batch about to record a cooling step.
+        db (AsyncSession): The async database session.
+
+    Raises:
+        HTTPException: 409 Conflict if a frozen ingredient has not been cooked.
+    """
+    # Check if any linked ingredient was frozen at opening time.
+    frozen_ingredient_result = await db.execute(
+        select(ProductionBatchIngredient)
+        .join(ReceptionItem, ProductionBatchIngredient.reception_item_id == ReceptionItem.id)
+        .join(LotOuverture, LotOuverture.reception_item_id == ReceptionItem.id)
+        .where(
+            ProductionBatchIngredient.batch_id == batch_id,
+            LotOuverture.was_frozen.is_(True),
+        )
+        .limit(1)
+    )
+    has_frozen_ingredient = frozen_ingredient_result.scalar_one_or_none() is not None
+
+    if not has_frozen_ingredient:
+        return
+
+    # A frozen ingredient is present — check that at least one cooking step exists.
+    cuisson_result = await db.execute(
+        select(ProductionStep).where(
+            ProductionStep.batch_id == batch_id,
+            ProductionStep.step_type == StepType.CUISSON_A_COEUR,
+        )
+    )
+    if cuisson_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Recongélation interdite : un ingrédient de ce batch était surgelé "
+                "et n'a pas encore subi d'étape de cuisson à cœur."
+            ),
+        )
+
+
 async def record_production_step(
     batch_id: UUID,
     payload: ProductionStepCreate,
@@ -160,6 +219,9 @@ async def record_production_step(
 
     if step.step_type == StepType.CUISSON_A_COEUR:
         await _check_cuisson_rule(batch, step, db, establishment)
+    elif step.step_type == StepType.REFROIDISSEMENT_DEBUT:
+        # Enforce no-refreeze rule before starting the cooling phase.
+        await _check_no_refreeze_rule(batch_id, db)
     elif step.step_type == StepType.REFROIDISSEMENT_FIN:
         await _check_refroidissement_rule(step, db, establishment)
 
@@ -172,6 +234,7 @@ async def create_batch(
     payload: ProductionBatchCreate,
     db: AsyncSession,
     establishment: CurrentEstablishment,
+    operator_id: UUID | None = None,
 ) -> ProductionBatchResponse:
     site_now = now_for_site(establishment.timezone)
     batch = ProductionBatch(
@@ -180,6 +243,7 @@ async def create_batch(
         food_type=payload.food_type,
         date_production=payload.date_production or site_now.date(),
         statut=BatchStatut.EN_COURS,
+        created_by_id=operator_id,
     )
     db.add(batch)
     await db.commit()
@@ -216,4 +280,100 @@ async def list_steps(
     steps = result.scalars().all()
     return ProductionStepListResponse(
         items=[ProductionStepResponse.model_validate(step) for step in steps]
+    )
+
+
+async def link_ingredient_to_batch(
+    batch_id: UUID,
+    payload: ProductionBatchIngredientCreate,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+    operator_id: UUID,
+) -> ProductionBatchIngredientResponse:
+    """Link a reception lot to a production batch for downstream traceability.
+
+    Validates that:
+    - The batch exists and belongs to this establishment.
+    - The reception item exists and belongs to this establishment.
+    - The combination (batch, reception_item) is not already linked.
+
+    Args:
+        batch_id (UUID): The production batch.
+        payload (ProductionBatchIngredientCreate): Reception item ID + quantity.
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+        operator_id (UUID): The operator recording the ingredient use.
+
+    Returns:
+        ProductionBatchIngredientResponse: The created traceability record.
+
+    Raises:
+        HTTPException: 404 if batch or reception item not found.
+        HTTPException: 409 if the link already exists.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    await _get_batch_in_scope(batch_id, db, establishment)
+
+    # Verify the reception item belongs to this establishment via its session.
+    from app.modules.receptions.models import ReceptionSession
+
+    item_result = await db.execute(
+        select(ReceptionItem)
+        .join(ReceptionSession, ReceptionItem.session_id == ReceptionSession.id)
+        .where(
+            ReceptionItem.id == payload.reception_item_id,
+            ReceptionSession.establishment_id == establishment.etablissement_id,
+        )
+    )
+    if item_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lot de réception introuvable pour cet établissement.",
+        )
+
+    ingredient = ProductionBatchIngredient(
+        batch_id=batch_id,
+        reception_item_id=payload.reception_item_id,
+        operator_id=operator_id,
+        quantity_used=payload.quantity_used,
+        unit=payload.unit,
+    )
+    db.add(ingredient)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ce lot est déjà lié à ce batch de production.",
+        )
+    await db.refresh(ingredient)
+    return ProductionBatchIngredientResponse.model_validate(ingredient)
+
+
+async def list_batch_ingredients(
+    batch_id: UUID,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> ProductionBatchIngredientListResponse:
+    """Return all ingredient links for a production batch.
+
+    Args:
+        batch_id (UUID): The production batch.
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+
+    Returns:
+        ProductionBatchIngredientListResponse: All traceability links for the batch.
+    """
+    await _get_batch_in_scope(batch_id, db, establishment)
+    result = await db.execute(
+        select(ProductionBatchIngredient)
+        .where(ProductionBatchIngredient.batch_id == batch_id)
+        .order_by(ProductionBatchIngredient.created_at)
+    )
+    items = result.scalars().all()
+    return ProductionBatchIngredientListResponse(
+        items=[ProductionBatchIngredientResponse.model_validate(i) for i in items]
     )

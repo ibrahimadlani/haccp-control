@@ -61,13 +61,16 @@ from app.modules.production.models import (  # noqa: F401
     BatchStatut,
     FoodType,
     ProductionBatch,
+    ProductionBatchIngredient,
     ProductionStep,
     StepType,
 )
 from app.modules.receptions.models import (  # noqa: F401
+    LotOuverture,
     ReceptionItem,
     ReceptionSession,
     ReceptionStatus,
+    StatutOuverture,
 )
 from app.modules.tenant.models import (  # noqa: F401
     Abonnement,
@@ -91,6 +94,7 @@ __all__ = [
     "Equipement",
     "Etablissement",
     "FoodType",
+    "LotOuverture",
     "NonConformity",
     "NonConformityStatus",
     "Operator",
@@ -98,6 +102,7 @@ __all__ = [
     "Organisation",
     "Pointage",
     "ProductionBatch",
+    "ProductionBatchIngredient",
     "ProductionStep",
     "Product",
     "ReceptionItem",
@@ -108,6 +113,7 @@ __all__ = [
     "ScheduleType",
     "SourceReleve",
     "StatutAbonnement",
+    "StatutOuverture",
     "StepType",
     "Supplier",
     "SupplierCountry",

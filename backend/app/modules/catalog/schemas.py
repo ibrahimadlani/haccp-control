@@ -253,6 +253,7 @@ class ProductBase(BaseModel):
     has_temperature_control: bool = False
     min_temperature: float | None = None
     max_temperature: float | None = None
+    shelf_life_after_opening_days: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_temperature_control(self) -> "ProductBase":
@@ -309,6 +310,7 @@ class ProductUpdate(BaseModel):
     has_temperature_control: bool | None = None
     min_temperature: float | None = None
     max_temperature: float | None = None
+    shelf_life_after_opening_days: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_temperature_control(self) -> "ProductUpdate":
@@ -363,6 +365,7 @@ class ProductResponse(BaseModel):
     has_temperature_control: bool
     min_temperature: float | None
     max_temperature: float | None
+    shelf_life_after_opening_days: int | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -459,6 +462,7 @@ class ReceptionProductResponse(BaseModel):
     has_temperature_control: bool
     min_temperature: float | None
     max_temperature: float | None
+    shelf_life_after_opening_days: int | None
 
 
 class ReceptionProductListResponse(BaseModel):
