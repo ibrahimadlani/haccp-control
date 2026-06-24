@@ -499,9 +499,7 @@ async def create_time_clock_event(
     # the status check before either has committed.  The second request will
     # block on this SELECT until the first commits, then re-read the updated state.
     await db.execute(
-        select(Utilisateur.id)
-        .where(Utilisateur.id == current_operator.id)
-        .with_for_update()
+        select(Utilisateur.id).where(Utilisateur.id == current_operator.id).with_for_update()
     )
 
     current_status, _ = await _get_operator_status(db, establishment, current_operator.id)

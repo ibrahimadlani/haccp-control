@@ -684,6 +684,4 @@ async def list_active_ouvertures(
         .order_by(LotOuverture.dlc_secondaire_calculee.asc())
     )
     items = result.scalars().all()
-    return LotOuvertureListResponse(
-        items=[LotOuvertureResponse.model_validate(o) for o in items]
-    )
+    return LotOuvertureListResponse(items=[LotOuvertureResponse.model_validate(o) for o in items])

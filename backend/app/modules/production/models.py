@@ -188,6 +188,4 @@ class ProductionBatchIngredient(TimestampMixin, Base):
     quantity_used: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    batch: Mapped[ProductionBatch] = relationship(
-        "ProductionBatch", back_populates="ingredients"
-    )
+    batch: Mapped[ProductionBatch] = relationship("ProductionBatch", back_populates="ingredients")

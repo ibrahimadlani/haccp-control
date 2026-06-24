@@ -162,9 +162,7 @@ async def test_close_lot_transitions_to_consomme(test_db: AsyncSession):
     item = await make_reception_item(test_db, session, product)
     ouverture = await make_lot_ouverture(test_db, seed.est, item, seed.operator)
 
-    result = await close_lot_ouverture(
-        ouverture.id, StatutOuverture.CONSOMME, test_db, seed.ctx
-    )
+    result = await close_lot_ouverture(ouverture.id, StatutOuverture.CONSOMME, test_db, seed.ctx)
 
     assert result.statut == StatutOuverture.CONSOMME
 
@@ -195,9 +193,7 @@ async def test_close_already_closed_lot_raises_409(test_db: AsyncSession):
     )
 
     with pytest.raises(HTTPException) as exc:
-        await close_lot_ouverture(
-            ouverture.id, StatutOuverture.JETE, test_db, seed.ctx
-        )
+        await close_lot_ouverture(ouverture.id, StatutOuverture.JETE, test_db, seed.ctx)
 
     assert exc.value.status_code == 409
 
@@ -275,9 +271,7 @@ async def test_close_lot_wrong_establishment_raises_404(test_db: AsyncSession):
     ouverture = await make_lot_ouverture(test_db, seed1.est, item, seed1.operator)
 
     with pytest.raises(HTTPException) as exc:
-        await close_lot_ouverture(
-            ouverture.id, StatutOuverture.CONSOMME, test_db, seed2.ctx
-        )
+        await close_lot_ouverture(ouverture.id, StatutOuverture.CONSOMME, test_db, seed2.ctx)
 
     assert exc.value.status_code == 404
 
@@ -287,8 +281,6 @@ async def test_close_lot_unknown_id_raises_404(test_db: AsyncSession):
     seed = await make_base_seed(test_db)
 
     with pytest.raises(HTTPException) as exc:
-        await close_lot_ouverture(
-            uuid.uuid4(), StatutOuverture.CONSOMME, test_db, seed.ctx
-        )
+        await close_lot_ouverture(uuid.uuid4(), StatutOuverture.CONSOMME, test_db, seed.ctx)
 
     assert exc.value.status_code == 404
