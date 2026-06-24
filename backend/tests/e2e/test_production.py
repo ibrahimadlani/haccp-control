@@ -36,9 +36,7 @@ async def seed_production(test_db: AsyncSession) -> ProductionSeed:
     test_db.add(org)
     await test_db.flush()
 
-    est = Etablissement(
-        organisation_id=org.id, nom_site="Production Site", timezone="Europe/Paris"
-    )
+    est = Etablissement(organisation_id=org.id, nom_site="Production Site", timezone="Europe/Paris")
     manager_role = Role(
         nom_role="MANAGER_PROD", permissions={"manager": True, "can_manage_device_login": True}
     )
@@ -94,9 +92,7 @@ async def _login(client: AsyncClient, seed: ProductionSeed) -> str:
     return resp.json()["access_token"]
 
 
-async def _count_temperature_ncs(
-    test_db: AsyncSession, establishment_id
-) -> int:
+async def _count_temperature_ncs(test_db: AsyncSession, establishment_id) -> int:
     result = await test_db.execute(
         select(func.count())
         .select_from(NonConformity)

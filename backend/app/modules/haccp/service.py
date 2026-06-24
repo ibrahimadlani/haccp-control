@@ -10,16 +10,21 @@ Provides two service layers:
    This guarantees that no out-of-range reading can exist without an associated
    ``NonConformity`` ticket.
 
+   ``create_temperature_records_bulk`` accepts up to 30 readings in a single
+   request, pre-validates all equipment IDs, and writes everything atomically
+   inside a savepoint.  It is the preferred path for the daily temperature tour.
+
 2. **Time clock** — enforces a strict state-machine on operator clock events
    (CLOCK_IN → BREAK_START ↔ BREAK_END → CLOCK_OUT) before writing.  The
    feature can be toggled per establishment via the ``timeclock.enabled``
    settings flag.
 
-Helper functions (``_normalize_for_site``, ``_is_temperature_compliant``,
-``_status_from_event``) are pure and stateless to facilitate unit testing.
+Helper functions (``_normalize_for_site``, ``_validate_measurement_time``,
+``_is_temperature_compliant``, ``_status_from_event``) are pure and stateless
+to facilitate unit testing.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from time import perf_counter
 from uuid import UUID
@@ -48,6 +53,8 @@ from app.modules.haccp.schemas import (
     OperatorTimeclockStatusItem,
     PointageCreate,
     PointageResponse,
+    TemperatureRecordBulkCreate,
+    TemperatureRecordBulkResponse,
     TemperatureRecordCreate,
     TemperatureRecordResponse,
     TimeclockStatus,
@@ -55,6 +62,24 @@ from app.modules.haccp.schemas import (
 from app.modules.personnel.models import AffectationSite, Utilisateur
 
 logger = structlog.get_logger(__name__)
+
+# ── Time validation constants ─────────────────────────────────────────────────
+
+_MAX_PAST_DELTA = timedelta(hours=8)
+"""Maximum age of a client-supplied ``measured_at`` timestamp.
+
+8 hours covers a full kitchen shift in offline mode.  Readings older than this
+would allow systematic backdating of HACCP records, which constitutes falsification
+of mandatory food-safety documentation under French law.
+"""
+
+_MAX_FUTURE_DELTA = timedelta(minutes=5)
+"""Maximum future offset allowed for a client-supplied ``measured_at`` timestamp.
+
+5 minutes accommodates reasonable device clock drift without permitting
+post-dated entries.
+"""
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +105,41 @@ def _normalize_for_site(value: datetime | None, timezone: str) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=site_tz)
     return value.astimezone(site_tz)
+
+
+def _validate_measurement_time(measured_at: datetime) -> None:
+    """Reject client-supplied timestamps outside the acceptable recording window.
+
+    The function is intentionally **not** called when ``payload.measured_at``
+    is ``None`` — the server-substituted ``now_for_site()`` value is always
+    valid and requires no further check.
+
+    Args:
+        measured_at (datetime): The site-normalized measurement timestamp
+            (output of ``_normalize_for_site`` when ``payload.measured_at``
+            was provided by the client).
+
+    Raises:
+        HTTPException: 422 Unprocessable Entity if the timestamp is more than
+            ``_MAX_PAST_DELTA`` (8 h) in the past or more than
+            ``_MAX_FUTURE_DELTA`` (5 min) in the future.
+    """
+    now = datetime.now(tz=measured_at.tzinfo)
+    if measured_at < now - _MAX_PAST_DELTA:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "measured_at est trop ancien (limite : 8h). "
+                "Les relevés antidatés ne sont pas autorisés."
+            ),
+        )
+    if measured_at > now + _MAX_FUTURE_DELTA:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "measured_at est dans le futur (limite : +5 min). Vérifiez l'heure de l'appareil."
+            ),
+        )
 
 
 def _is_temperature_compliant(value: Decimal, min_cible: Decimal, max_cible: Decimal) -> bool:
@@ -159,6 +219,9 @@ async def create_temperature_record(
     Raises:
         HTTPException: 404 Not Found if the equipment does not exist or belongs
             to a different establishment.
+        HTTPException: 422 Unprocessable Entity if ``measured_at`` is outside
+            the acceptable recording window (more than 8 h in the past or more
+            than 5 min in the future).
     """
     from app.modules.nonconformities import service as nc_service
 
@@ -178,6 +241,10 @@ async def create_temperature_record(
             detail="Equipment not found for this establishment.",
         )
 
+    mesure_effectuee_at = _normalize_for_site(payload.measured_at, establishment.timezone)
+    if payload.measured_at is not None:
+        _validate_measurement_time(mesure_effectuee_at)
+
     is_conforme = _is_temperature_compliant(
         payload.measured_value, equipment.temperature_min_cible, equipment.temperature_max_cible
     )
@@ -188,7 +255,7 @@ async def create_temperature_record(
         valeur_mesuree=payload.measured_value,
         is_conforme=is_conforme,
         source=payload.source,
-        mesure_effectuee_at=_normalize_for_site(payload.measured_at, establishment.timezone),
+        mesure_effectuee_at=mesure_effectuee_at,
     )
     db.add(releve)
     # Flush to get the releve PK before the NC service creates its FK reference.
@@ -231,6 +298,140 @@ async def create_temperature_record(
         nonconformity_id=nonconformity_id,
         source=releve.source,
         measured_at=releve.mesure_effectuee_at,
+    )
+
+
+async def create_temperature_records_bulk(
+    payload: TemperatureRecordBulkCreate,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+    current_operator: Utilisateur,
+) -> TemperatureRecordBulkResponse:
+    """Record multiple temperature measurements in a single atomic transaction.
+
+    Designed for the daily temperature tour: pre-validates all equipment IDs in
+    one query, then writes all records and any resulting non-conformity tickets
+    inside a savepoint.  Either everything succeeds or nothing is written.
+
+    Args:
+        payload (TemperatureRecordBulkCreate): Up to 30 measurements.
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+        current_operator (Utilisateur): The PIN-authenticated operator.
+
+    Returns:
+        TemperatureRecordBulkResponse: All created records with their conformity
+            results, a total count, and the number of non-conformities opened.
+
+    Raises:
+        HTTPException: 400 Bad Request if any equipment ID is unknown or belongs
+            to a different establishment.
+        HTTPException: 422 Unprocessable Entity if any ``measured_at`` is outside
+            the acceptable recording window.
+    """
+    from app.modules.nonconformities import service as nc_service
+
+    _started = perf_counter()
+
+    # ── 1. Pre-validate all equipment IDs in a single query ───────────────────
+    equipment_ids = [r.equipment_id for r in payload.records]
+    eq_result = await db.execute(
+        select(Equipement).where(
+            Equipement.id.in_(equipment_ids),
+            Equipement.etablissement_id == establishment.etablissement_id,
+            Equipement.deleted_at.is_(None),
+        )
+    )
+    equipment_map: dict[UUID, Equipement] = {eq.id: eq for eq in eq_result.scalars().all()}
+    unknown = set(equipment_ids) - set(equipment_map.keys())
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Équipements inconnus ou inaccessibles : {[str(i) for i in unknown]}",
+        )
+
+    # ── 2. Validate all timestamps before writing anything ────────────────────
+    normalized_times: list[datetime] = []
+    for record in payload.records:
+        mesure_at = _normalize_for_site(record.measured_at, establishment.timezone)
+        if record.measured_at is not None:
+            _validate_measurement_time(mesure_at)
+        normalized_times.append(mesure_at)
+
+    # ── 3. Batch insert inside a savepoint ────────────────────────────────────
+    releves: list[ReleveTemperature] = []
+    nc_ids: list[UUID | None] = []
+
+    async with db.begin_nested():
+        for record, mesure_effectuee_at in zip(payload.records, normalized_times, strict=True):
+            equipment = equipment_map[record.equipment_id]
+            is_conforme = _is_temperature_compliant(
+                record.measured_value,
+                equipment.temperature_min_cible,
+                equipment.temperature_max_cible,
+            )
+            releve = ReleveTemperature(
+                etablissement_id=establishment.etablissement_id,
+                equipement_id=equipment.id,
+                utilisateur_id=current_operator.id,
+                valeur_mesuree=record.measured_value,
+                is_conforme=is_conforme,
+                source=record.source,
+                mesure_effectuee_at=mesure_effectuee_at,
+            )
+            db.add(releve)
+            await db.flush()
+
+            nc_id: UUID | None = None
+            if not is_conforme:
+                nc = await nc_service.open_temperature_nonconformity(releve, db)
+                nc_id = nc.id
+
+            releves.append(releve)
+            nc_ids.append(nc_id)
+
+    await db.commit()
+    for releve in releves:
+        await db.refresh(releve)
+
+    # ── 4. Emit metrics ───────────────────────────────────────────────────────
+    nonconformity_count = sum(1 for nc_id in nc_ids if nc_id is not None)
+    for releve in releves:
+        TEMPERATURE_RECORDS_TOTAL.labels(
+            is_conforme=str(releve.is_conforme).lower(),
+            source=str(releve.source),
+        ).inc()
+
+    TEMPERATURE_RECORD_DURATION_SECONDS.observe(perf_counter() - _started)
+    logger.info(
+        "temperature_records_bulk_created",
+        count=len(releves),
+        nonconformity_count=nonconformity_count,
+        source=str(payload.records[0].source) if payload.records else "unknown",
+    )
+
+    results = [
+        TemperatureRecordResponse(
+            id=releve.id,
+            etablissement_id=releve.etablissement_id,
+            equipment_id=releve.equipement_id,
+            utilisateur_id=releve.utilisateur_id,
+            measured_value=releve.valeur_mesuree,
+            temperature_min_cible=equipment_map[releve.equipement_id].temperature_min_cible,
+            temperature_max_cible=equipment_map[releve.equipement_id].temperature_max_cible,
+            is_conforme=releve.is_conforme,
+            action_corrective_required=not releve.is_conforme,
+            nonconformity_id=nc_id,
+            source=releve.source,
+            measured_at=releve.mesure_effectuee_at,
+        )
+        for releve, nc_id in zip(releves, nc_ids, strict=True)
+    ]
+
+    return TemperatureRecordBulkResponse(
+        created=results,
+        count=len(results),
+        nonconformity_count=nonconformity_count,
     )
 
 

@@ -23,7 +23,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -96,6 +96,12 @@ class Equipement(TimestampMixin, Base):
     """
 
     __tablename__ = "equipements"
+    __table_args__ = (
+        CheckConstraint(
+            "temperature_min_cible < temperature_max_cible",
+            name="min_lt_max",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     etablissement_id: Mapped[uuid.UUID] = mapped_column(

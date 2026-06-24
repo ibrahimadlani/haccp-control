@@ -1,6 +1,5 @@
 """Business logic for the Production domain."""
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -93,8 +92,7 @@ async def _check_cuisson_rule(
 
     label = FOOD_TYPE_LABELS[batch.food_type]
     reason = (
-        f"Cuisson {label} insuffisante : "
-        f"{step.temperature_mesuree}°C mesuré, attendu {target:g}°C"
+        f"Cuisson {label} insuffisante : {step.temperature_mesuree}°C mesuré, attendu {target:g}°C"
     )
     await _open_temperature_nc(db, establishment, step, reason)
 
