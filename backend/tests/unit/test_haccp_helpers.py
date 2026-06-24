@@ -1,6 +1,6 @@
 """Unit tests for pure helper functions in HACCP and related service modules."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -9,10 +9,16 @@ from app.modules.cleaning.models import ScheduleType
 from app.modules.cleaning.service import _infer_schedule_type
 from app.modules.haccp.models import TypeEvenementPointage
 from app.modules.haccp.schemas import TimeclockStatus
+import pytest
+from fastapi import HTTPException
+
 from app.modules.haccp.service import (
+    _MAX_FUTURE_DELTA,
+    _MAX_PAST_DELTA,
     _is_temperature_compliant,
     _normalize_for_site,
     _status_from_event,
+    _validate_measurement_time,
 )
 from app.modules.nonconformities.service import _deviation_celsius
 
@@ -115,6 +121,65 @@ def test_deviation_celsius_above_max():
 def test_deviation_celsius_always_positive():
     result = _deviation_celsius(Decimal("-5"), Decimal("0"), Decimal("4"))
     assert result > 0
+
+
+# ── _validate_measurement_time ────────────────────────────────────────────────
+
+_PARIS = ZoneInfo("Europe/Paris")
+
+
+def _now_paris() -> datetime:
+    return datetime.now(tz=_PARIS)
+
+
+def test_validate_measurement_time_within_window_passes():
+    recent = _now_paris() - (_MAX_PAST_DELTA - timedelta(minutes=1))
+    _validate_measurement_time(recent)  # must not raise
+
+
+def test_validate_measurement_time_exactly_at_past_boundary_passes():
+    # Exactly at the boundary (now - 8h + 1s) must be accepted.
+    at_boundary = _now_paris() - _MAX_PAST_DELTA + timedelta(seconds=1)
+    _validate_measurement_time(at_boundary)  # must not raise
+
+
+def test_validate_measurement_time_one_second_beyond_past_boundary_raises_422():
+    too_old = _now_paris() - _MAX_PAST_DELTA - timedelta(seconds=1)
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_measurement_time(too_old)
+    assert exc_info.value.status_code == 422
+    assert "8h" in exc_info.value.detail
+
+
+def test_validate_measurement_time_well_in_past_raises_422():
+    yesterday = _now_paris() - timedelta(days=1)
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_measurement_time(yesterday)
+    assert exc_info.value.status_code == 422
+
+
+def test_validate_measurement_time_within_future_tolerance_passes():
+    near_future = _now_paris() + (_MAX_FUTURE_DELTA - timedelta(seconds=1))
+    _validate_measurement_time(near_future)  # must not raise
+
+
+def test_validate_measurement_time_exactly_at_future_boundary_passes():
+    at_boundary = _now_paris() + _MAX_FUTURE_DELTA
+    _validate_measurement_time(at_boundary)  # must not raise
+
+
+def test_validate_measurement_time_one_second_beyond_future_boundary_raises_422():
+    too_future = _now_paris() + _MAX_FUTURE_DELTA + timedelta(seconds=1)
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_measurement_time(too_future)
+    assert exc_info.value.status_code == 422
+    assert "5 min" in exc_info.value.detail
+
+
+def test_validate_measurement_time_preserves_timezone():
+    # Validation must work for any timezone-aware datetime, not just Paris.
+    utc_recent = datetime.now(tz=UTC) - timedelta(hours=1)
+    _validate_measurement_time(utc_recent)  # must not raise
 
 
 # ── _infer_schedule_type ──────────────────────────────────────────────────────

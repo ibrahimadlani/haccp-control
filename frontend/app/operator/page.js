@@ -1,11 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { ChefHat, PackageSearch, SprayCan, Thermometer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { TemperatureRecordModal } from "@/components/haccp/TemperatureRecordModal"
 import { useTimeclock } from "@/lib/contexts/TimeclockContext"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 
@@ -14,7 +12,6 @@ export default function OperatorDashboard() {
   const { operator } = useOperator()
   const { status, enabled } = useTimeclock()
   const firstName = operator?.name?.split(" ")[0] ?? "Opérateur"
-  const [recordOpen, setRecordOpen] = useState(false)
 
   // When timeclock is disabled there's no presence tracking — all actions are open
   const isActive = !enabled || status === "active"
@@ -40,7 +37,7 @@ export default function OperatorDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => setRecordOpen(true)} disabled={!isActive}>
+            <Button className="w-full" onClick={() => router.push("/operator/record")} disabled={!isActive}>
               Commencer
             </Button>
           </CardContent>
@@ -119,7 +116,6 @@ export default function OperatorDashboard() {
         </Card>
       </div>
 
-      <TemperatureRecordModal open={recordOpen} onOpenChange={setRecordOpen} />
     </div>
   )
 }

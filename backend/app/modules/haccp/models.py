@@ -23,7 +23,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -92,6 +92,12 @@ class ReleveTemperature(TimestampMixin, Base):
     """
 
     __tablename__ = "releves_temperature"
+    __table_args__ = (
+        CheckConstraint(
+            "valeur_mesuree BETWEEN -50 AND 300",
+            name="valeur_mesuree_range",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     etablissement_id: Mapped[uuid.UUID] = mapped_column(
