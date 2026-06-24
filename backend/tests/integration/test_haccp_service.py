@@ -220,7 +220,9 @@ async def test_create_temperature_records_bulk_mixed_compliance_opens_nc(test_db
     payload = TemperatureRecordBulkCreate(
         records=[
             TemperatureRecordCreate(equipment_id=eq1.id, measured_value=Decimal("2.0")),  # conforme
-            TemperatureRecordCreate(equipment_id=eq2.id, measured_value=Decimal("8.0")),  # hors seuil
+            TemperatureRecordCreate(
+                equipment_id=eq2.id, measured_value=Decimal("8.0")
+            ),  # hors seuil
         ]
     )
     result = await create_temperature_records_bulk(payload, test_db, seed.ctx, seed.operator)
@@ -280,9 +282,7 @@ async def test_create_temperature_records_bulk_unknown_equipment_raises_400(test
 
     payload = TemperatureRecordBulkCreate(
         records=[
-            TemperatureRecordCreate(
-                equipment_id=foreign_equip.id, measured_value=Decimal("2.0")
-            ),
+            TemperatureRecordCreate(equipment_id=foreign_equip.id, measured_value=Decimal("2.0")),
         ]
     )
     with pytest.raises(HTTPException) as exc_info:

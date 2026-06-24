@@ -137,8 +137,7 @@ def _validate_measurement_time(measured_at: datetime) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "measured_at est dans le futur (limite : +5 min). "
-                "Vérifiez l'heure de l'appareil."
+                "measured_at est dans le futur (limite : +5 min). Vérifiez l'heure de l'appareil."
             ),
         )
 
