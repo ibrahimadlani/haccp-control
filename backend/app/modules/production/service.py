@@ -1,6 +1,5 @@
 """Business logic for the Production domain."""
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status

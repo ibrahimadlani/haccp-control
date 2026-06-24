@@ -5,13 +5,13 @@ from decimal import Decimal
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import pytest
+from fastapi import HTTPException
+
 from app.modules.cleaning.models import ScheduleType
 from app.modules.cleaning.service import _infer_schedule_type
 from app.modules.haccp.models import TypeEvenementPointage
 from app.modules.haccp.schemas import TimeclockStatus
-import pytest
-from fastapi import HTTPException
-
 from app.modules.haccp.service import (
     _MAX_FUTURE_DELTA,
     _MAX_PAST_DELTA,
