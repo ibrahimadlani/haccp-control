@@ -590,7 +590,10 @@ async def open_lot_ouverture(
     if existing_result.scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Ce lot est déjà ouvert. Clôturez l'ouverture existante avant d'en créer une nouvelle.",
+            detail=(
+                "Ce lot est déjà ouvert. "
+                "Clôturez l'ouverture existante avant d'en créer une nouvelle."
+            ),
         )
 
     dlc_secondaire = calculate_dlc_secondaire(today, item.dluo, payload.duree_apres_ouverture_jours)

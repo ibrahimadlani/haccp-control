@@ -1,7 +1,7 @@
 """Integration tests for production batch ingredient traceability."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -18,7 +18,6 @@ from app.modules.production.service import (
     list_batch_ingredients,
     record_production_step,
 )
-from app.modules.receptions.models import StatutOuverture
 from tests.integration.conftest import (
     make_base_seed,
     make_lot_ouverture,

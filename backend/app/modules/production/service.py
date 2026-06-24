@@ -28,7 +28,7 @@ from app.modules.production.schemas import (
     ProductionStepListResponse,
     ProductionStepResponse,
 )
-from app.modules.receptions.models import LotOuverture, ReceptionItem, StatutOuverture
+from app.modules.receptions.models import LotOuverture, ReceptionItem
 
 # Use Decimal throughout so threshold comparisons are exact (IEEE 754 floats
 # can represent 74.0 as 73.9999…, silently triggering a false non-conformity).
@@ -342,12 +342,12 @@ async def link_ingredient_to_batch(
     db.add(ingredient)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ce lot est déjà lié à ce batch de production.",
-        )
+        ) from err
     await db.refresh(ingredient)
     return ProductionBatchIngredientResponse.model_validate(ingredient)
 
