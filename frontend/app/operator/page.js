@@ -1,11 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { PackageSearch, SprayCan, Thermometer } from "lucide-react"
+import { ChefHat, PackageSearch, SprayCan, Thermometer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { TemperatureRecordModal } from "@/components/haccp/TemperatureRecordModal"
 import { useTimeclock } from "@/lib/contexts/TimeclockContext"
 import { useOperator } from "@/lib/contexts/OperatorContext"
 
@@ -14,7 +12,6 @@ export default function OperatorDashboard() {
   const { operator } = useOperator()
   const { status, enabled } = useTimeclock()
   const firstName = operator?.name?.split(" ")[0] ?? "Opérateur"
-  const [recordOpen, setRecordOpen] = useState(false)
 
   // When timeclock is disabled there's no presence tracking — all actions are open
   const isActive = !enabled || status === "active"
@@ -26,7 +23,7 @@ export default function OperatorDashboard() {
         <p className="text-muted-foreground">Que souhaitez-vous faire ?</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className={!isActive ? "opacity-60" : ""}>
           <CardHeader>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -40,7 +37,7 @@ export default function OperatorDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => setRecordOpen(true)} disabled={!isActive}>
+            <Button className="w-full" onClick={() => router.push("/operator/record")} disabled={!isActive}>
               Commencer
             </Button>
           </CardContent>
@@ -73,6 +70,30 @@ export default function OperatorDashboard() {
         <Card className={!isActive ? "opacity-60" : ""}>
           <CardHeader>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <ChefHat className="h-5 w-5 text-primary" />
+            </div>
+            <CardTitle className="mt-3">Production</CardTitle>
+            <CardDescription>
+              {isActive
+                ? "Relevés cuisson et refroidissement"
+                : "Pointez-vous pour accéder à cette fonctionnalité"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push("/operator/production")}
+              disabled={!isActive}
+            >
+              Démarrer
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className={!isActive ? "opacity-60" : ""}>
+          <CardHeader>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
               <SprayCan className="h-5 w-5 text-primary" />
             </div>
             <CardTitle className="mt-3">Nettoyage</CardTitle>
@@ -95,7 +116,6 @@ export default function OperatorDashboard() {
         </Card>
       </div>
 
-      <TemperatureRecordModal open={recordOpen} onOpenChange={setRecordOpen} />
     </div>
   )
 }

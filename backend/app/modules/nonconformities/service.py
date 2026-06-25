@@ -32,6 +32,7 @@ and testable without a database.  ``_load_nonconformity`` is the shared
 tenant-scoped lookup used by all lifecycle operations.
 """
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -186,6 +187,39 @@ async def open_temperature_nonconformity(
         "nonconformity_opened",
         workflow_type="TEMPERATURE",
         source_record_id=str(releve.id),
+    )
+    return nc
+
+
+async def open_manual_temperature_nonconformity(
+    db: AsyncSession,
+    *,
+    establishment_id: UUID,
+    opened_by_id: UUID,
+    opened_at: datetime,
+    reason: str,
+) -> NonConformity:
+    """Create an OPEN temperature NC without a linked ``ReleveTemperature`` record.
+
+    Used by production HACCP checks (cuisson, refroidissement) where the
+    triggering event is a ``ProductionStep`` rather than an equipment reading.
+    """
+    nc = NonConformity(
+        establishment_id=establishment_id,
+        workflow_type=WorkflowType.TEMPERATURE,
+        status=NonConformityStatus.OPEN,
+        source_record_id=None,
+        opened_by_id=opened_by_id,
+        opened_at=opened_at,
+    )
+    db.add(nc)
+    await db.flush()
+    NONCONFORMITIES_OPENED_TOTAL.labels(workflow_type=WorkflowType.TEMPERATURE).inc()
+    logger.info(
+        "nonconformity_opened",
+        workflow_type="TEMPERATURE",
+        reason=reason,
+        source="manual",
     )
     return nc
 

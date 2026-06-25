@@ -1,7 +1,7 @@
 """
 Pydantic schemas for the Receptions domain.
 
-Covers two groups:
+Covers three groups:
 
 1. **Session schemas** — ``ReceptionSessionCreate``, ``ReceptionSessionResponse``,
    and ``ReceptionSessionDetailResponse`` (which extends the base response with
@@ -19,14 +19,17 @@ they are never serialised — they are populated in the router from the catalog.
 
 3. **Search schema** — ``ReceptionLotSearchItem`` for the lot-number recall
    search endpoint.
+
+4. **Lot ouverture schemas** — ``LotOuvertureCreate`` / ``LotOuvertureResponse``
+   model the HACCP workflow of opening a lot and computing its secondary DLC.
 """
 
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.modules.receptions.models import ReceptionStatus
+from app.modules.receptions.models import ReceptionStatus, StatutOuverture
 
 
 class ReceptionSessionCreate(BaseModel):
@@ -109,6 +112,7 @@ class ReceptionItemResponse(BaseModel):
     dluo: date
     measured_temperature: float | None
     packaging_ok: bool
+    is_surgele: bool
     is_compliant: bool
     nc_id: UUID | None
     scanned_at: datetime
@@ -179,6 +183,7 @@ class ReceptionItemCreate(BaseModel):
     dluo: date
     measured_temperature: float | None = None
     packaging_ok: bool = True
+    is_surgele: bool = False
     is_compliant: bool
     product_min_temp: float | None = Field(default=None, exclude=True)
     product_max_temp: float | None = Field(default=None, exclude=True)
@@ -198,9 +203,7 @@ class ReceptionItemCreate(BaseModel):
             ValueError: If ``is_compliant`` is inconsistent with observed defects.
         """
         if not self.packaging_ok and self.is_compliant:
-            raise ValueError(
-                "is_compliant doit être False : l'emballage est non conforme."
-            )
+            raise ValueError("is_compliant doit être False : l'emballage est non conforme.")
         if (
             self.measured_temperature is not None
             and self.product_min_temp is not None
@@ -212,3 +215,55 @@ class ReceptionItemCreate(BaseModel):
                     "is_compliant doit être False : température hors des limites cibles."
                 )
         return self
+
+
+# ── Lot ouverture (DLC secondaire) ────────────────────────────────────────────
+
+
+class LotOuvertureCreate(BaseModel):
+    """Request body for opening a reception lot and computing its secondary DLC.
+
+    Attributes:
+        duree_apres_ouverture_jours (int): Shelf life in days after the product
+            is opened.  The service caps the computed secondary DLC at the lot's
+            primary DLUO so this value can never extend the supplier's original
+            expiry date.  Must be ≥ 1.
+    """
+
+    duree_apres_ouverture_jours: int = Field(ge=1)
+
+
+class LotOuvertureResponse(BaseModel):
+    """Response returned after a lot is opened.
+
+    Attributes:
+        id (UUID): Opening event primary key.
+        establishment_id (UUID): Owning establishment.
+        reception_item_id (UUID): Source reception item.
+        operator_id (UUID): Operator who opened the lot.
+        ouvert_at (datetime): Site-local timestamp of the opening.
+        dluo_primaire (date): Supplier DLC/DDM (upper bound).
+        duree_apres_ouverture_jours (int): Configured shelf life after opening.
+        dlc_secondaire_calculee (date): Computed secondary DLC (≤ dluo_primaire).
+        was_frozen (bool): Whether the product was frozen at opening.
+        statut (StatutOuverture): Current lifecycle state of the opened lot.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    establishment_id: UUID
+    reception_item_id: UUID
+    operator_id: UUID
+    ouvert_at: datetime
+    dluo_primaire: date
+    duree_apres_ouverture_jours: int
+    dlc_secondaire_calculee: date
+    was_frozen: bool
+    statut: StatutOuverture
+
+
+class LotOuvertureListResponse(BaseModel):
+    """List of active (OUVERT) lot openings at an establishment."""
+
+    items: list[LotOuvertureResponse]

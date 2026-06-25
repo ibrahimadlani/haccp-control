@@ -28,7 +28,19 @@ import uuid
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, String, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -175,6 +187,9 @@ class ReceptionItem(TimestampMixin, Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
     is_compliant: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    is_surgele: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     nc_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("non_conformities.id", ondelete="SET NULL"), nullable=True
     )
@@ -182,4 +197,98 @@ class ReceptionItem(TimestampMixin, Base):
 
     session: Mapped[ReceptionSession] = relationship(
         "ReceptionSession", back_populates="items", lazy="noload"
+    )
+
+
+class StatutOuverture(StrEnum):
+    """Lifecycle state of an opened product lot.
+
+    Attributes:
+        OUVERT: The lot has been opened and its secondary DLC is active.
+        CONSOMME: The lot has been fully consumed.
+        JETE: The lot was discarded before full consumption (e.g. expired DLC).
+    """
+
+    OUVERT = "OUVERT"
+    CONSOMME = "CONSOMME"
+    JETE = "JETE"
+
+
+class LotOuverture(TimestampMixin, Base):
+    """Tracks the opening of a reception lot and its computed secondary DLC.
+
+    French HACCP regulations (GBPH restauration) require that, once a product's
+    packaging is broken, a secondary use-by date (DLC secondaire) is calculated
+    and labelled.  The secondary DLC is capped by the supplier's primary DLC
+    so that it can **never** exceed the original expiry date.
+
+    The ``CHECK`` constraints enforce this rule at the database level as a
+    last-resort safety net independent of the Python service layer.
+
+    The ``RESTRICT`` FK on ``reception_item_id`` enforces lot immutability:
+    once a lot has been opened, its source ``ReceptionItem`` record cannot be
+    deleted — preserving the full traceability chain.
+
+    Attributes:
+        id (UUID): Primary key.
+        establishment_id (UUID): FK to the owning establishment.
+        reception_item_id (UUID): FK to the source reception item. RESTRICT.
+        operator_id (UUID): FK to the operator who opened the lot. RESTRICT.
+        ouvert_at (datetime): Site-local timestamp of the opening event.
+        dluo_primaire (date): Supplier DLC/DDM copied from the reception item
+            at opening time, used as the upper bound for the secondary DLC.
+        duree_apres_ouverture_jours (int): Shelf life in days after opening,
+            taken from the product catalog (``shelf_life_after_opening_days``).
+        dlc_secondaire_calculee (date): ``min(ouvert_at.date + duree, dluo_primaire)``.
+            The CHECK constraint ``dlc_secondaire_ne_depasse_pas_primaire``
+            guarantees this invariant at the database level.
+        was_frozen (bool): ``True`` if the product was flagged as frozen
+            (``ReceptionItem.is_surgele``) at the time of opening.  Used by
+            the production service to enforce the no-refreezing rule.
+        statut (StatutOuverture): Current state of the opened lot.
+    """
+
+    __tablename__ = "lot_ouvertures"
+    __table_args__ = (
+        CheckConstraint(
+            "dlc_secondaire_calculee <= dluo_primaire",
+            name="dlc_secondaire_ne_depasse_pas_primaire",
+        ),
+        CheckConstraint(
+            "duree_apres_ouverture_jours > 0",
+            name="duree_apres_ouverture_positive",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    establishment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("etablissements.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reception_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("reception_items.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    operator_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("utilisateurs.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    ouvert_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    dluo_primaire: Mapped[date] = mapped_column(Date, nullable=False)
+    duree_apres_ouverture_jours: Mapped[int] = mapped_column(Integer, nullable=False)
+    dlc_secondaire_calculee: Mapped[date] = mapped_column(Date, nullable=False)
+    was_frozen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    statut: Mapped[StatutOuverture] = mapped_column(
+        Enum(StatutOuverture, name="statut_ouverture", native_enum=True),
+        nullable=False,
+        default=StatutOuverture.OUVERT,
+        server_default=text("'OUVERT'"),
     )

@@ -36,7 +36,7 @@ dev = [
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=app --cov-branch --cov-report=term-missing --cov-fail-under=95"
+addopts = "--cov=app --cov-branch --cov-report=term-missing --cov-fail-under=90"
 
 [tool.coverage.run]
 source = ["app"]

@@ -5,7 +5,8 @@ Exposes endpoints for the two core HACCP data-capture workflows:
 
 1. **Temperature records** — operators submit measured temperatures on the
    shared tablet; out-of-range readings automatically open non-conformity
-   tickets.
+   tickets.  A bulk endpoint allows submitting a full daily temperature tour
+   in a single atomic request.
 
 2. **Time clock** — operators clock in, start/end breaks, and clock out.
    The current status of all operators at an establishment is available for
@@ -26,6 +27,8 @@ from app.modules.haccp.schemas import (
     OperatorTimeclockStatusItem,
     PointageCreate,
     PointageResponse,
+    TemperatureRecordBulkCreate,
+    TemperatureRecordBulkResponse,
     TemperatureRecordCreate,
     TemperatureRecordResponse,
 )
@@ -59,8 +62,57 @@ async def create_temperature_record(
     Returns:
         TemperatureRecordResponse: The created record with conformity result
             and linked NC ID (if any).
+
+    Raises:
+        HTTPException: 404 Not Found if the equipment is not in scope.
+        HTTPException: 422 Unprocessable Entity if ``measured_at`` is outside
+            the acceptable recording window (more than 8 h past or 5 min future).
     """
     return await service.create_temperature_record(payload, db, establishment, current_operator)
+
+
+@router.post(
+    "/temperature-records/bulk",
+    response_model=TemperatureRecordBulkResponse,
+    status_code=201,
+    dependencies=[Depends(require_feature(Feature.HACCP_TEMPERATURE))],
+)
+async def create_temperature_records_bulk(
+    payload: TemperatureRecordBulkCreate,
+    db: DatabaseSession,
+    establishment: CurrentSite,
+    current_operator: CurrentOperator,
+) -> TemperatureRecordBulkResponse:
+    """Submit multiple HACCP temperature measurements in a single atomic request.
+
+    Intended for the daily temperature tour: the operator fills in readings for
+    all fridges and ovens, then submits everything at once.  Also used by the
+    tablet's offline queue to replay buffered measurements after reconnection.
+
+    All equipment IDs are validated before any record is written.  If any ID
+    is unknown or belongs to a different establishment, the entire batch is
+    rejected with 400.  Any ``measured_at`` outside the 8-hour window is
+    rejected with 422 before writing begins.
+
+    Args:
+        payload (TemperatureRecordBulkCreate): 1–30 measurements.
+        db (DatabaseSession): Injected async database session.
+        establishment (CurrentSite): The authenticated device context.
+        current_operator (CurrentOperator): The PIN-authenticated operator.
+
+    Returns:
+        TemperatureRecordBulkResponse: All created records with their conformity
+            results, a total count, and the number of non-conformities opened.
+
+    Raises:
+        HTTPException: 400 Bad Request if any equipment ID is unknown or
+            out of scope for this establishment.
+        HTTPException: 422 Unprocessable Entity if any ``measured_at`` is outside
+            the acceptable recording window.
+    """
+    return await service.create_temperature_records_bulk(
+        payload, db, establishment, current_operator
+    )
 
 
 @router.get("/time-clock-statuses", response_model=EstablishmentTimeclockStatusResponse)

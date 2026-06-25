@@ -134,7 +134,9 @@ class ActionCorrectiveResponse(BaseModel):
 
     Attributes:
         id (UUID): Corrective action primary key.
-        releve_id (UUID): The source temperature record's primary key.
+        releve_id (UUID | None): The source temperature record's primary key,
+            or ``None`` for production NCs (cuisson/refroidissement) that are
+            not linked to an equipment reading.
         utilisateur_id (UUID): The signing operator.
         description (str): Free-text description of the action taken.
         photo_s3_key (str | None): S3 object key of the evidence photo.
@@ -146,7 +148,7 @@ class ActionCorrectiveResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    releve_id: UUID
+    releve_id: UUID | None
     utilisateur_id: UUID
     description: str
     photo_s3_key: str | None
@@ -182,6 +184,37 @@ class EquipmentChoiceListResponse(BaseModel):
     """
 
     items: list[EquipmentChoiceResponse]
+
+
+class TemperatureRecordBulkCreate(BaseModel):
+    """Request body for submitting multiple temperature measurements in a single request.
+
+    Allows tablets to submit a complete daily temperature tour in one atomic call,
+    and enables the offline queue to flush all buffered readings at once.
+
+    Attributes:
+        records (list[TemperatureRecordCreate]): At least 1, at most 30 measurements.
+            The cap of 30 covers the largest restaurant kitchens while preventing abuse.
+    """
+
+    records: list[TemperatureRecordCreate] = Field(min_length=1, max_length=30)
+
+
+class TemperatureRecordBulkResponse(BaseModel):
+    """Response returned after a successful bulk temperature record creation.
+
+    Attributes:
+        created (list[TemperatureRecordResponse]): All created records with their
+            conformity results and linked NC IDs. Preserves the submission order.
+        count (int): Total number of records created.
+        nonconformity_count (int): Number of records that triggered an automatic
+            non-conformity ticket. Used by the frontend to route the operator
+            to the corrective action flow without scanning the full list.
+    """
+
+    created: list[TemperatureRecordResponse]
+    count: int
+    nonconformity_count: int
 
 
 # Backward-compatibility aliases for French-named clients.

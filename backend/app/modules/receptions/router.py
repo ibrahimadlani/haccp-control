@@ -35,7 +35,11 @@ from app.modules.catalog.schemas import (
     ReceptionProductResponse,
 )
 from app.modules.receptions import service
+from app.modules.receptions.models import StatutOuverture
 from app.modules.receptions.schemas import (
+    LotOuvertureCreate,
+    LotOuvertureListResponse,
+    LotOuvertureResponse,
     ReceptionItemCreate,
     ReceptionItemResponse,
     ReceptionLotSearchItem,
@@ -249,3 +253,80 @@ async def close_reception_session(
         HTTPException: 409 Conflict if the session is already closed.
     """
     return await service.close_session(session_id, db, establishment)
+
+
+# ── Lot ouvertures (DLC secondaire) ───────────────────────────────────────────
+
+
+@router.post(
+    "/reception-items/{item_id}/open-lot",
+    response_model=LotOuvertureResponse,
+    status_code=201,
+)
+async def open_lot_ouverture(
+    item_id: UUID,
+    payload: LotOuvertureCreate,
+    db: DatabaseSession,
+    establishment: CurrentSite,
+    operator: CurrentOperator,
+) -> LotOuvertureResponse:
+    """Open a reception lot and compute its secondary DLC.
+
+    Args:
+        item_id (UUID): The reception item (lot) to open.
+        payload (LotOuvertureCreate): Shelf-life duration after opening.
+        db (DatabaseSession): Injected async database session.
+        establishment (CurrentSite): The authenticated device context.
+        operator (CurrentOperator): The PIN-authenticated operator.
+
+    Returns:
+        LotOuvertureResponse: The created opening event with computed secondary DLC.
+
+    Raises:
+        HTTPException: 404 if the item does not exist or is out of scope.
+        HTTPException: 422 if the primary DLUO is already expired.
+        HTTPException: 409 if the lot is already open.
+    """
+    return await service.open_lot_ouverture(item_id, payload, db, establishment, operator)
+
+
+@router.patch("/lot-ouvertures/{ouverture_id}/close", response_model=LotOuvertureResponse)
+async def close_lot_ouverture(
+    ouverture_id: UUID,
+    statut: Annotated[StatutOuverture, Query()],
+    db: DatabaseSession,
+    establishment: CurrentSite,
+) -> LotOuvertureResponse:
+    """Transition an open lot to CONSOMME or JETE.
+
+    Args:
+        ouverture_id (UUID): The opening event to close.
+        statut (StatutOuverture): Target status — CONSOMME or JETE (query param).
+        db (DatabaseSession): Injected async database session.
+        establishment (CurrentSite): The authenticated device context.
+
+    Returns:
+        LotOuvertureResponse: The updated opening event.
+
+    Raises:
+        HTTPException: 404 if the opening event is not in scope.
+        HTTPException: 409 if the lot is not currently OUVERT.
+    """
+    return await service.close_lot_ouverture(ouverture_id, statut, db, establishment)
+
+
+@router.get("/lot-ouvertures", response_model=LotOuvertureListResponse)
+async def list_active_ouvertures(
+    db: DatabaseSession,
+    establishment: CurrentSite,
+) -> LotOuvertureListResponse:
+    """List all currently open lots at the establishment, sorted by secondary DLC asc.
+
+    Args:
+        db (DatabaseSession): Injected async database session.
+        establishment (CurrentSite): The authenticated device context.
+
+    Returns:
+        LotOuvertureListResponse: Active (OUVERT) lots ordered by dlc_secondaire_calculee.
+    """
+    return await service.list_active_ouvertures(db, establishment)

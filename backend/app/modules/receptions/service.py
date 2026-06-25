@@ -25,6 +25,7 @@ shared by all session operations for consistent tenant scoping and S3 URL
 construction.
 """
 
+from datetime import date, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -51,8 +52,17 @@ from app.modules.catalog.schemas import (
 )
 from app.modules.nonconformities.models import NonConformity, NonConformityStatus, WorkflowType
 from app.modules.personnel.models import Utilisateur
-from app.modules.receptions.models import ReceptionItem, ReceptionSession, ReceptionStatus
+from app.modules.receptions.models import (
+    LotOuverture,
+    ReceptionItem,
+    ReceptionSession,
+    ReceptionStatus,
+    StatutOuverture,
+)
 from app.modules.receptions.schemas import (
+    LotOuvertureCreate,
+    LotOuvertureListResponse,
+    LotOuvertureResponse,
     ReceptionItemCreate,
     ReceptionItemResponse,
     ReceptionLotSearchItem,
@@ -320,6 +330,7 @@ async def add_item(
         dluo=payload.dluo,
         measured_temperature=payload.measured_temperature,
         packaging_ok=payload.packaging_ok,
+        is_surgele=payload.is_surgele,
         is_compliant=is_compliant,
         nc_id=nc_id,
         scanned_at=now_for_site(establishment.timezone),
@@ -486,3 +497,194 @@ async def search_reception_items_by_lot(
         )
         for item, session, product in result.all()
     ]
+
+
+# ── DLC secondaire / ouverture de lot ─────────────────────────────────────────
+
+
+def calculate_dlc_secondaire(
+    date_ouverture: date,
+    dluo_primaire: date,
+    duree_apres_ouverture_jours: int,
+) -> date:
+    """Compute the secondary DLC for an opened lot.
+
+    The Règle d'Or HACCP states that the secondary DLC must **never** exceed
+    the supplier's primary DLC/DDM.  This function enforces that rule in the
+    application layer; the ``CHECK CONSTRAINT`` on ``lot_ouvertures`` provides
+    a second safety net at the database level.
+
+    Args:
+        date_ouverture (date): The calendar date on which the lot was opened.
+        dluo_primaire (date): The supplier's primary use-by date.
+        duree_apres_ouverture_jours (int): Configured shelf life after opening
+            (must be > 0, validated by ``LotOuvertureCreate``).
+
+    Returns:
+        date: ``min(date_ouverture + duree, dluo_primaire)``.
+
+    Raises:
+        ValueError: If ``duree_apres_ouverture_jours`` is not positive.
+    """
+    if duree_apres_ouverture_jours <= 0:
+        raise ValueError("duree_apres_ouverture_jours doit être strictement positif.")
+    dlc_naive = date_ouverture + timedelta(days=duree_apres_ouverture_jours)
+    return min(dlc_naive, dluo_primaire)
+
+
+async def open_lot_ouverture(
+    reception_item_id: UUID,
+    payload: LotOuvertureCreate,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+    operator: Utilisateur,
+) -> LotOuvertureResponse:
+    """Open a reception lot and compute its secondary DLC.
+
+    Validates that:
+    - The reception item exists and belongs to this establishment.
+    - The primary DLUO has not already expired.
+    - No other ``OUVERT`` ouverture exists for this item (a lot can only be
+      opened once at a time; it must be closed before being re-opened).
+
+    Args:
+        reception_item_id (UUID): The lot to open.
+        payload (LotOuvertureCreate): Duration after opening in days.
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+        operator (Utilisateur): The PIN-authenticated operator.
+
+    Returns:
+        LotOuvertureResponse: The created opening event with computed DLC.
+
+    Raises:
+        HTTPException: 404 if the item does not exist or is out of scope.
+        HTTPException: 422 if the primary DLUO is already expired.
+        HTTPException: 409 if the lot is already open.
+    """
+    item_result = await db.execute(
+        select(ReceptionItem)
+        .join(ReceptionSession, ReceptionItem.session_id == ReceptionSession.id)
+        .where(
+            ReceptionItem.id == reception_item_id,
+            ReceptionSession.establishment_id == establishment.etablissement_id,
+        )
+    )
+    item = item_result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lot introuvable.")
+
+    today = now_for_site(establishment.timezone).date()
+    if item.dluo < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Impossible d'ouvrir un lot périmé (DLUO : {item.dluo}).",
+        )
+
+    existing_result = await db.execute(
+        select(LotOuverture).where(
+            LotOuverture.reception_item_id == reception_item_id,
+            LotOuverture.statut == StatutOuverture.OUVERT,
+        )
+    )
+    if existing_result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ce lot est déjà ouvert. "
+                "Clôturez l'ouverture existante avant d'en créer une nouvelle."
+            ),
+        )
+
+    dlc_secondaire = calculate_dlc_secondaire(today, item.dluo, payload.duree_apres_ouverture_jours)
+    ouverture = LotOuverture(
+        establishment_id=establishment.etablissement_id,
+        reception_item_id=reception_item_id,
+        operator_id=operator.id,
+        ouvert_at=now_for_site(establishment.timezone),
+        dluo_primaire=item.dluo,
+        duree_apres_ouverture_jours=payload.duree_apres_ouverture_jours,
+        dlc_secondaire_calculee=dlc_secondaire,
+        was_frozen=item.is_surgele,
+        statut=StatutOuverture.OUVERT,
+    )
+    db.add(ouverture)
+    await db.commit()
+    await db.refresh(ouverture)
+    logger.info(
+        "lot_ouverture_created",
+        reception_item_id=str(reception_item_id),
+        dlc_secondaire=str(dlc_secondaire),
+        was_frozen=item.is_surgele,
+    )
+    return LotOuvertureResponse.model_validate(ouverture)
+
+
+async def close_lot_ouverture(
+    ouverture_id: UUID,
+    new_statut: StatutOuverture,
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> LotOuvertureResponse:
+    """Transition an open lot to CONSOMME or JETE.
+
+    Args:
+        ouverture_id (UUID): The opening event to close.
+        new_statut (StatutOuverture): Target status (CONSOMME or JETE).
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+
+    Returns:
+        LotOuvertureResponse: The updated opening event.
+
+    Raises:
+        HTTPException: 404 if the opening event is not in scope.
+        HTTPException: 409 if the lot is not currently OUVERT.
+    """
+    result = await db.execute(
+        select(LotOuverture).where(
+            LotOuverture.id == ouverture_id,
+            LotOuverture.establishment_id == establishment.etablissement_id,
+        )
+    )
+    ouverture = result.scalar_one_or_none()
+    if ouverture is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Ouverture de lot introuvable."
+        )
+    if ouverture.statut != StatutOuverture.OUVERT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Le lot est déjà {ouverture.statut.lower()}, impossible de le modifier.",
+        )
+    ouverture.statut = new_statut
+    await db.commit()
+    await db.refresh(ouverture)
+    logger.info("lot_ouverture_closed", ouverture_id=str(ouverture_id), statut=new_statut)
+    return LotOuvertureResponse.model_validate(ouverture)
+
+
+async def list_active_ouvertures(
+    db: AsyncSession,
+    establishment: CurrentEstablishment,
+) -> LotOuvertureListResponse:
+    """Return all currently open lot openings for an establishment.
+
+    Args:
+        db (AsyncSession): The async database session.
+        establishment (CurrentEstablishment): The authenticated establishment context.
+
+    Returns:
+        LotOuvertureListResponse: Active openings ordered by DLC secondaire ascending
+            so the lots closest to expiry appear first.
+    """
+    result = await db.execute(
+        select(LotOuverture)
+        .where(
+            LotOuverture.establishment_id == establishment.etablissement_id,
+            LotOuverture.statut == StatutOuverture.OUVERT,
+        )
+        .order_by(LotOuverture.dlc_secondaire_calculee.asc())
+    )
+    items = result.scalars().all()
+    return LotOuvertureListResponse(items=[LotOuvertureResponse.model_validate(o) for o in items])
